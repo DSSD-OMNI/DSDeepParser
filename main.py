@@ -8,6 +8,7 @@ and exposes Prometheus metrics.  Designed for 24/7 operation on Railway.
 """
 
 import asyncio
+import os
 import logging
 import signal
 import os
@@ -192,3 +193,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+# Принудительно читаем порт из переменной окружения Railway
+PORT = int(os.getenv('PORT', 8000))
+
