@@ -1,0 +1,216 @@
+# ── DSDeepParser Configuration ──────────────────────────────────────
+# Environment variables: use ${VAR_NAME} or ${VAR_NAME:default_value}
+
+global:
+  log_level: INFO
+  log_rotation: midnight
+  log_backup_count: 7
+  timezone: UTC
+
+network:
+  session_pool_size: 10
+  cache_dir: ./cache
+  cache_ttl_default: 300
+  proxies: []
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
+
+rate_limiter:
+  base_delay: 0.5
+  min_delay: 0.2
+  max_delay: 10.0
+  backoff_factor: 2.0
+  success_window: 50
+  error_threshold: 0.1
+
+notifications:
+  telegram:
+    enabled: false
+    token: "${TELEGRAM_BOT_TOKEN:YOUR_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID:YOUR_CHAT_ID}"
+
+metrics:
+  enabled: true
+  port: 8000
+
+default_storage:
+  type: sqlite
+  path: "${DB_PATH:/app/data/fpl_data.db}"
+
+export:
+  csv_dir: exports
+  db_path: "${DB_PATH:/app/data/fpl_data.db}"
+  schedule_hour: 0
+
+ml:
+  enabled: true
+  recalculate_interval_hours: 6
+
+# ── Data Sources ────────────────────────────────────────────────────
+
+sources:
+  # ── FPL Bootstrap (teams, players, events) ────────────────────────
+  - name: fpl_bootstrap
+    type: fpl
+    enabled: true
+    schedule: "0 */12 * * *"
+    fetcher:
+      url: "https://fantasy.premierleague.com/api/bootstrap-static/"
+      method: GET
+      headers:
+        Accept: application/json
+    parser:
+      type: json
+    storage:
+      - table: bootstrap
+        type: sqlite
+
+  # ── FPL League Standings ──────────────────────────────────────────
+  - name: fpl_leagues
+    type: fpl
+    enabled: true
+    schedule: "*/30 * * * *"
+    fetcher:
+      url: "https://fantasy.premierleague.com/api/leagues-classic/{league_id}/standings/"
+      method: GET
+      headers:
+        Accept: application/json
+      params:
+        league_id:
+          - 314
+          - 313
+          - 417
+      pagination:
+        type: page
+        param: page_standings
+        start: 1
+        max_pages: 5
+    parser:
+      type: json
+      extract: "$.standings.results[*]"
+    transformer:
+      - operation: rename
+        mapping:
+          entry: manager_id
+          event_total: event_points
+          total: total_points
+    storage:
+      - table: league_standings
+        type: sqlite
+        unique_columns:
+          - league_id
+          - manager_id
+
+  # ── FPL League: Les Mutants ───────────────────────────────────────
+  - name: fpl_league_les_mutants_1125782
+    type: fpl
+    enabled: true
+    schedule: "*/5 * * * *"
+    fetcher:
+      url: "https://fantasy.premierleague.com/api/leagues-classic/{league_id}/standings/"
+      method: GET
+      headers:
+        Accept: application/json
+      params:
+        league_id:
+          - 1125782
+      pagination:
+        type: page
+        param: page_standings
+        start: 1
+        max_pages: 5
+    parser:
+      type: json
+      extract: "$.standings.results[*]"
+    transformer:
+      - operation: rename
+        mapping:
+          entry: manager_id
+          event_total: event_points
+          total: total_points
+    storage:
+      - table: league_standings
+        type: sqlite
+        unique_columns:
+          - league_id
+          - manager_id
+
+  # ── FPL Manager History ───────────────────────────────────────────
+  - name: fpl_manager_history
+    type: fpl
+    enabled: true
+    schedule: "0 */6 * * *"
+    fetcher:
+      url: "https://fantasy.premierleague.com/api/entry/{manager_id}/history/"
+      method: GET
+      headers:
+        Accept: application/json
+    parser:
+      type: json
+      extract: "$.current[*]"
+    storage:
+      - table: manager_history
+        type: sqlite
+
+  # ── Elo Ratings ───────────────────────────────────────────────────
+  - name: elo_epl
+    type: elo
+    enabled: true
+    schedule: "0 6 * * *"
+    fetcher:
+      url: "http://api.clubelo.com/"
+    storage:
+      - table: raw_team_elo
+        type: sqlite
+        mode: overwrite
+
+  # ── Understat xG ──────────────────────────────────────────────────
+  - name: understat_epl
+    type: understat
+    enabled: true
+    schedule: "0 7 * * *"
+    params:
+      league: EPL
+      season: "2024"
+    storage:
+      - table: raw_understat_teams
+        type: sqlite
+        mode: overwrite
+
+  # ── FCI Player Stats ──────────────────────────────────────────────
+  - name: fci_player_stats
+    type: fci
+    enabled: false  # Enable when CSV source is available
+    schedule: "0 8 * * *"
+    params:
+      csv_path: "player_gameweek_stats.csv"
+      # csv_url: "https://example.com/player_gameweek_stats.csv"
+    storage:
+      - table: raw_fci_stats
+        type: sqlite
+        mode: overwrite
+
+  # ── Calendar (International Breaks + Fixtures) ────────────────────
+  - name: calendar_breaks
+    type: calendar
+    enabled: true
+    schedule: "0 0 * * 1"
+    storage:
+      - table: raw_calendar
+        type: sqlite
+        mode: overwrite
+
+  # ── Test Source (health check) ────────────────────────────────────
+  - name: test_source
+    type: fpl
+    enabled: false
+    schedule: "*/5 * * * *"
+    fetcher:
+      url: "https://jsonplaceholder.typicode.com/posts/1"
+      method: GET
+    parser:
+      type: json
+    storage:
+      - table: test_data
+        type: sqlite
