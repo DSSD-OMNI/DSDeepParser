@@ -105,7 +105,8 @@ sources:
     type: json
   schedule: '*/5 * * * *'
   storage:
-  - table: league_standings
+  - league_id: 1125782
+    table: league_standings
     type: sqlite
     unique_columns:
     - league_id
