@@ -11,4 +11,4 @@ COPY . .
 
 RUN mkdir -p /app/data /app/cache /app/exports
 
-CMD ["sh", "-c", "python main-wrapper.py 2>&1 | tee /tmp/startup.log; echo "Container will stay alive for 1 hour"; sleep 3600"]
+CMD sh -c "python main.py 2>&1 | tee /tmp/app.log; echo 'App finished, sleeping for debug...'; sleep 3600"
