@@ -184,3 +184,18 @@ sources:
   - table: test_data
     type: sqlite
   type: fpl
+- enabled: true
+  fetcher:
+    headers:
+      Accept: application/json
+    method: GET
+    type: http
+    url: https://fantasy.premierleague.com/api/entry/{manager_id}/event/{event}/picks/
+  name: fpl_manager_picks
+  parser:
+    extract: $.picks[*]
+    type: json
+  schedule: 0 */6 * * *
+  storage:
+  - table: raw_manager_picks
+    type: sqlite

@@ -91,3 +91,23 @@ class FPLSource(DataSource):
                     "Source %s: storage error for table %s: %s",
                     self.name, st_cfg.get("table", "?"), exc,
                 )
+
+async def fetch_manager_history(manager_id: int) -> List[Dict]:
+    """Получить историю менеджера (entry/{id}/history/)"""
+    url = f"https://fantasy.premierleague.com/api/entry/{manager_id}/history/"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get('current', [])
+    return []
+
+async def fetch_manager_picks(manager_id: int, event: int) -> List[Dict]:
+    """Получить состав менеджера на игровую неделю"""
+    url = f"https://fantasy.premierleague.com/api/entry/{manager_id}/event/{event}/picks/"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get('picks', [])
+    return []
