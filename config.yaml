@@ -71,7 +71,7 @@ sources:
   parser:
     extract: $.standings.results[*]
     type: json
-  schedule: '*/30 * * * *'
+  schedule: 0 * * * *
   storage:
   - table: league_standings
     type: sqlite
