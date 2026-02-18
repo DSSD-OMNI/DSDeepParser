@@ -111,3 +111,70 @@ async def fetch_manager_picks(manager_id: int, event: int) -> List[Dict]:
                 data = await resp.json()
                 return data.get('picks', [])
     return []
+
+# ----------------------------------------------------------------------
+# Добавленные функции для истории и составов (по запросу)
+# ----------------------------------------------------------------------
+import asyncio
+import aiohttp
+
+async def fetch_manager_full_history(manager_id: int) -> dict:
+    url = f"https://fantasy.premierleague.com/api/entry/{manager_id}/history/"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            return {}
+
+async def fetch_manager_picks(manager_id: int, event: int) -> list:
+    url = f"https://fantasy.premierleague.com/api/entry/{manager_id}/event/{event}/picks/"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                picks = data.get('picks', [])
+                for p in picks:
+                    p['manager_id'] = manager_id
+                    p['event'] = event
+                return picks
+            return []
+
+async def collect_league_history(league_id: int):
+    import sqlite3
+    from storage.sqlite_storage import SQLiteStorage
+    from core.config import get_config
+
+    config = get_config()
+    storage = SQLiteStorage(config["default_storage"]["path"])
+
+    conn = sqlite3.connect(config["default_storage"]["path"])
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT DISTINCT manager_id FROM league_standings_{league_id}")
+    managers = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    print(f"Сбор истории для {len(managers)} менеджеров")
+    history = []
+    picks = []
+
+    for mid in managers:
+        hist = await fetch_manager_full_history(mid)
+        if hist:
+            for gw in hist.get('current', []):
+                gw['manager_id'] = mid
+                history.append(gw)
+            for chip in hist.get('chips', []):
+                chip['manager_id'] = mid
+                chip['chip_name'] = chip.get('name')
+                history.append(chip)
+            for gw in hist.get('current', []):
+                event = gw['event']
+                p = await fetch_manager_picks(mid, event)
+                picks.extend(p)
+        await asyncio.sleep(0.5)
+
+    if history:
+        await storage.store(history, {"table": "raw_manager_history", "mode": "append"})
+    if picks:
+        await storage.store(picks, {"table": "raw_manager_picks", "mode": "append"})
+    print(f"Сохранено: история {len(history)}, составы {len(picks)}")
