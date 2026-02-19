@@ -1,0 +1,259 @@
+2026-02-17 22:44:56,052 | __main__                  | INFO    | Metrics server on port 8000
+2026-02-17 22:44:56,055 | __main__                  | ERROR   | Failed to init source fpl_bootstrap: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:44:56,058 | __main__                  | ERROR   | Failed to init source fpl_leagues: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:44:56,060 | __main__                  | ERROR   | Failed to init source fpl_league_les_mutants_1125782: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:44:56,062 | __main__                  | ERROR   | Failed to init source fpl_manager_history: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:44:56,063 | __main__                  | ERROR   | Failed to init source elo_epl: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/elo.py", line 60, in __init__
+    self.storage_items = self._build_storage(config, global_config)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/elo.py", line 66, in _build_storage
+    items.append((SQLiteStorage(global_config["default_storage"]["path"]), st))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:44:56,065 | __main__                  | ERROR   | Failed to init source understat_epl: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/understat.py", line 49, in __init__
+    self.storage_items = self._build_storage(config, global_config)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/understat.py", line 55, in _build_storage
+    items.append((SQLiteStorage(global_config["default_storage"]["path"]), st))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:44:56,066 | __main__                  | ERROR   | Failed to init source calendar_breaks: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/calendar_source.py", line 49, in __init__
+    self.storage_items = self._build_storage(config, global_config)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/calendar_source.py", line 56, in _build_storage
+    items.append((SQLiteStorage(global_config["default_storage"]["path"]), st))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:10,860 | __main__                  | INFO    | Metrics server on port 8000
+2026-02-17 22:45:10,861 | __main__                  | ERROR   | Failed to init source fpl_bootstrap: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:10,863 | __main__                  | ERROR   | Failed to init source fpl_leagues: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:10,864 | __main__                  | ERROR   | Failed to init source fpl_league_les_mutants_1125782: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:10,865 | __main__                  | ERROR   | Failed to init source fpl_manager_history: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/fpl.py", line 60, in __init__
+    storage = SQLiteStorage(global_config["default_storage"]["path"])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:10,866 | __main__                  | ERROR   | Failed to init source elo_epl: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/elo.py", line 60, in __init__
+    self.storage_items = self._build_storage(config, global_config)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/elo.py", line 66, in _build_storage
+    items.append((SQLiteStorage(global_config["default_storage"]["path"]), st))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:10,867 | __main__                  | ERROR   | Failed to init source understat_epl: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/understat.py", line 49, in __init__
+    self.storage_items = self._build_storage(config, global_config)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/understat.py", line 55, in _build_storage
+    items.append((SQLiteStorage(global_config["default_storage"]["path"]), st))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:10,869 | __main__                  | ERROR   | Failed to init source calendar_breaks: [Errno 30] Read-only file system: '/app'
+Traceback (most recent call last):
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/main.py", line 86, in __init__
+    source = cls(src_cfg, self.config, self.rate_limiter, self.session_pool)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/calendar_source.py", line 49, in __init__
+    self.storage_items = self._build_storage(config, global_config)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/sources/calendar_source.py", line 56, in _build_storage
+    items.append((SQLiteStorage(global_config["default_storage"]["path"]), st))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/daniil/Desktop/DSSD_OMNI/DSDeepParser-v2-Claude/storage/sqlite_storage.py", line 23, in __init__
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+  File "<frozen os>", line 215, in makedirs
+  File "<frozen os>", line 225, in makedirs
+OSError: [Errno 30] Read-only file system: '/app'
+2026-02-17 22:45:50,587 | __main__                  | INFO    | Metrics server on port 8000
+2026-02-17 22:45:50,588 | __main__                  | INFO    | Source registered: fpl_bootstrap (type=fpl)
+2026-02-17 22:45:50,589 | __main__                  | INFO    | Source registered: fpl_leagues (type=fpl)
+2026-02-17 22:45:50,590 | __main__                  | INFO    | Source registered: fpl_league_les_mutants_1125782 (type=fpl)
+2026-02-17 22:45:50,591 | __main__                  | INFO    | Source registered: fpl_manager_history (type=fpl)
+2026-02-17 22:45:50,591 | __main__                  | INFO    | Source registered: elo_epl (type=elo)
+2026-02-17 22:45:50,591 | __main__                  | INFO    | Source registered: understat_epl (type=understat)
+2026-02-17 22:45:50,591 | __main__                  | INFO    | Source registered: calendar_breaks (type=calendar)
+2026-02-17 22:45:50,594 | core.scheduler            | INFO    | Scheduled job fpl_bootstrap: cron[month='*', day='*', day_of_week='*', hour='*/12', minute='0']
+2026-02-17 22:45:50,594 | core.scheduler            | INFO    | Scheduled job fpl_leagues: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/30']
+2026-02-17 22:45:50,595 | core.scheduler            | INFO    | Scheduled job fpl_league_les_mutants_1125782: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/5']
+2026-02-17 22:45:50,595 | core.scheduler            | INFO    | Scheduled job fpl_manager_history: cron[month='*', day='*', day_of_week='*', hour='*/6', minute='0']
+2026-02-17 22:45:50,595 | core.scheduler            | INFO    | Scheduled job elo_epl: cron[month='*', day='*', day_of_week='*', hour='6', minute='0']
+2026-02-17 22:45:50,596 | core.scheduler            | INFO    | Scheduled job understat_epl: cron[month='*', day='*', day_of_week='*', hour='7', minute='0']
+2026-02-17 22:45:50,596 | core.scheduler            | INFO    | Scheduled job calendar_breaks: cron[month='*', day='*', day_of_week='1', hour='0', minute='0']
+2026-02-17 22:45:50,596 | __main__                  | INFO    | 🚀 Starting DSDeepParser Universal 24/7
+2026-02-17 22:45:50,598 | sources.fpl               | INFO    | Source fpl_bootstrap: fetching with params {}
+2026-02-17 22:45:50,598 | sources.fpl               | INFO    | Source fpl_leagues: fetching with params {'league_id': [314, 313, 417]}
+2026-02-17 22:45:50,599 | sources.fpl               | INFO    | Source fpl_league_les_mutants_1125782: fetching with params {'league_id': [1125782]}
+2026-02-17 22:45:50,599 | sources.fpl               | INFO    | Source fpl_manager_history: fetching with params {}
+2026-02-17 22:45:50,599 | sources.elo               | INFO    | Elo: fetching http://api.clubelo.com/2026-02-17
+2026-02-17 22:45:50,599 | sources.understat         | INFO    | Understat: fetching https://understat.com/league/EPL/2024
+2026-02-17 22:45:50,600 | sources.calendar_source   | INFO    | Calendar: fetching FPL fixtures
+2026-02-17 22:45:51,351 | sources.understat         | WARNING | Understat: teamsData not found
+2026-02-17 22:45:51,352 | core.base                 | WARNING | Source understat_epl: no records after parse
+2026-02-17 22:45:51,441 | sources.calendar_source   | INFO    | Calendar: 388 records (breaks + fixtures)
+2026-02-17 22:45:51,448 | storage.sqlite_storage    | INFO    | Stored 8 records in raw_calendar
+2026-02-17 22:45:51,456 | storage.sqlite_storage    | INFO    | Stored 380 records in raw_calendar_fixtures
+2026-02-17 22:45:51,457 | core.base                 | INFO    | Source calendar_breaks: pipeline complete (388 records)
+2026-02-17 22:45:51,597 | sources.fpl               | INFO    | Source fpl_bootstrap: parsing data
+2026-02-17 22:45:51,597 | sources.fpl               | INFO    | Source fpl_bootstrap: transforming 1 records
+2026-02-17 22:45:51,598 | sources.fpl               | INFO    | Source fpl_bootstrap: storing 1 records in 1 backend(s)
+2026-02-17 22:45:51,680 | storage.sqlite_storage    | INFO    | Stored 1 records in bootstrap
+2026-02-17 22:45:51,693 | core.base                 | INFO    | Source fpl_bootstrap: pipeline complete (1 records)
+2026-02-17 22:45:52,252 | core.base                 | WARNING | Source fpl_manager_history: fetch returned None, skipping
+2026-02-17 22:45:55,886 | sources.fpl               | INFO    | Source fpl_league_les_mutants_1125782: parsing data
+2026-02-17 22:45:55,886 | sources.fpl               | INFO    | Source fpl_league_les_mutants_1125782: transforming 9 records
+2026-02-17 22:45:55,886 | sources.fpl               | INFO    | Source fpl_league_les_mutants_1125782: storing 9 records in 1 backend(s)
+2026-02-17 22:45:55,889 | storage.sqlite_storage    | INFO    | Stored 9 records in league_standings
+2026-02-17 22:45:55,891 | core.base                 | INFO    | Source fpl_league_les_mutants_1125782: pipeline complete (9 records)
+2026-02-17 22:46:00,522 | sources.fpl               | INFO    | Source fpl_leagues: parsing data
+2026-02-17 22:46:00,522 | sources.fpl               | INFO    | Source fpl_leagues: transforming 267 records
+2026-02-17 22:46:00,523 | sources.fpl               | INFO    | Source fpl_leagues: storing 267 records in 1 backend(s)
+2026-02-17 22:46:00,527 | storage.sqlite_storage    | INFO    | Stored 267 records in league_standings
+2026-02-17 22:46:00,529 | core.base                 | INFO    | Source fpl_leagues: pipeline complete (267 records)
+2026-02-17 22:46:21,385 | sources.elo               | ERROR   | Elo fetch failed: 
+2026-02-17 22:46:26,720 | sources.elo               | INFO    | Elo: parsed 0 teams from HTML
+2026-02-17 22:46:26,721 | core.base                 | WARNING | Source elo_epl: no records after parse
+2026-02-17 22:46:26,723 | ml.features               | INFO    | Starting ML feature recalculation…
+2026-02-17 22:46:27,368 | storage.sqlite_storage    | INFO    | Stored 276 records in features
+2026-02-17 22:46:27,370 | ml.features               | INFO    | Stored 276 feature records
+2026-02-17 22:46:27,375 | storage.sqlite_storage    | INFO    | Stored 276 records in lri_scores
+2026-02-17 22:46:27,377 | ml.features               | INFO    | Stored 276 LRI scores
+2026-02-17 22:46:27,377 | ml.features               | INFO    | Feature recalculation complete
+2026-02-17 22:47:12,329 | __main__                  | INFO    | Shutdown signal received
+2026-02-17 22:47:12,330 | __main__                  | INFO    | Graceful shutdown in progress…
+2026-02-17 22:47:12,330 | __main__                  | INFO    | Parser stopped.

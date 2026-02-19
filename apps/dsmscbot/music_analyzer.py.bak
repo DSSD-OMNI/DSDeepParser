@@ -1,0 +1,324 @@
+"""
+Улучшенный модуль для анализа музыкальных треков
+Определяет BPM, тональность, энергию/настроение, структуру
+"""
+
+import os
+import librosa
+import numpy as np
+from mutagen import File
+from mutagen.id3 import ID3
+from typing import Dict, List, Tuple, Optional
+import warnings
+warnings.filterwarnings('ignore')
+
+
+class MusicAnalyzer:
+    """Класс для анализа музыкальных характеристик трека"""
+    
+    # Camelot Wheel для гармонического микширования
+    CAMELOT_WHEEL = {
+        'C': '8B', 'C#': '3B', 'D': '10B', 'D#': '5B', 
+        'E': '12B', 'F': '7B', 'F#': '2B', 'G': '9B',
+        'G#': '4B', 'A': '11B', 'A#': '6B', 'B': '1B',
+        'Cm': '5A', 'C#m': '12A', 'Dm': '7A', 'D#m': '2A',
+        'Em': '9A', 'Fm': '4A', 'F#m': '11A', 'Gm': '6A',
+        'G#m': '1A', 'Am': '8A', 'A#m': '3A', 'Bm': '10A'
+    }
+    
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+        self.filename = os.path.basename(file_path)
+        self.y = None
+        self.sr = None
+        
+    def load_audio(self, duration: Optional[int] = None) -> bool:
+        """Загрузка аудиофайла"""
+        try:
+            # Загружаем первые 90 секунд для более точного анализа
+            self.y, self.sr = librosa.load(
+                self.file_path, 
+                sr=22050,
+                duration=duration or 90,
+                mono=True
+            )
+            return True
+        except Exception as e:
+            print(f"Ошибка загрузки {self.filename}: {e}")
+            return False
+    
+    def analyze_bpm(self) -> float:
+        """
+        Улучшенное определение BPM с поддержкой диапазона 0-300
+        Использует комбинацию методов для максимальной точности
+        """
+        try:
+            # Метод 1: Onset strength (основной)
+            onset_env = librosa.onset.onset_strength(y=self.y, sr=self.sr)
+            tempo_onset = librosa.feature.tempo(onset_envelope=onset_env, sr=self.sr)[0]
+            
+            # Метод 2: Beat tracking для верификации
+            tempo_beat, _ = librosa.beat.beat_track(y=self.y, sr=self.sr)
+            
+            # Метод 3: Autocorrelation для медленных темпов
+            ac = librosa.autocorrelate(onset_env, max_size=self.sr // 2)
+            peaks = librosa.util.peak_pick(ac, pre_max=3, post_max=3, pre_avg=3, post_avg=5, delta=0.5, wait=10)
+            
+            if len(peaks) > 0:
+                # Конвертируем пик в BPM
+                tempo_ac = 60 * self.sr / peaks[0] if peaks[0] > 0 else tempo_onset
+            else:
+                tempo_ac = tempo_onset
+            
+            # Усредняем результаты с весами
+            # Onset strength - наиболее надежный для электронной музыки
+            tempo = (tempo_onset * 0.5 + tempo_beat * 0.3 + tempo_ac * 0.2)
+            
+            # Проверяем диапазон 0-300 BPM (без автокоррекции)
+            # Если BPM вне разумных пределов, используем onset
+            if tempo < 30 or tempo > 300:
+                tempo = tempo_onset
+            
+            # Дополнительная проверка для drum'n'bass / jungle (160-180 BPM)
+            # и double-time vs half-time
+            if 70 < tempo < 90:
+                # Возможно это half-time, проверяем double
+                tempo_double = tempo * 2
+                if 140 < tempo_double < 180:
+                    # Вероятно drum'n'bass в half-time
+                    # Оставляем как есть, пусть пользователь решает
+                    pass
+            
+            return round(tempo, 2)
+            
+        except Exception as e:
+            print(f"Ошибка анализа BPM для {self.filename}: {e}")
+            return 0.0
+    
+    def analyze_key(self) -> Tuple[str, str]:
+        """Определение тональности трека"""
+        try:
+            # Используем CQT хромограмму для лучшей точности
+            chroma = librosa.feature.chroma_cqt(y=self.y, sr=self.sr)
+            
+            # Находим преобладающую тональность
+            key_idx = np.argmax(np.sum(chroma, axis=1))
+            keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+            
+            # Профили мажора и минора (Krumhansl-Schmuckler)
+            major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+            minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+            
+            # Нормализуем
+            major_profile = major_profile / np.sum(major_profile)
+            minor_profile = minor_profile / np.sum(minor_profile)
+            
+            chroma_avg = np.mean(chroma, axis=1)
+            chroma_avg = chroma_avg / np.sum(chroma_avg)
+            
+            # Вычисляем корреляцию
+            major_corr = np.corrcoef(chroma_avg, major_profile)[0, 1]
+            minor_corr = np.corrcoef(chroma_avg, minor_profile)[0, 1]
+            
+            key = keys[key_idx]
+            if minor_corr > major_corr:
+                key += 'm'
+            
+            camelot = self.CAMELOT_WHEEL.get(key, '?')
+            
+            return key, camelot
+            
+        except Exception as e:
+            print(f"Ошибка анализа тональности для {self.filename}: {e}")
+            return 'Unknown', '?'
+    
+    def analyze_energy_mood(self) -> Tuple[float, str]:
+        """
+        Определение энергии/настроения трека
+        Возвращает: (energy_value, mood_description)
+        """
+        try:
+            # Множественные метрики для точной оценки энергии
+            
+            # 1. RMS энергия
+            rms = librosa.feature.rms(y=self.y)[0]
+            rms_energy = np.mean(rms)
+            
+            # 2. Spectral centroid (яркость)
+            spectral_centroid = librosa.feature.spectral_centroid(y=self.y, sr=self.sr)[0]
+            brightness = np.mean(spectral_centroid) / (self.sr / 2)
+            
+            # 3. Zero crossing rate (перкуссивность)
+            zcr = librosa.feature.zero_crossing_rate(self.y)[0]
+            percussiveness = np.mean(zcr)
+            
+            # 4. Spectral rolloff (частотная энергия)
+            rolloff = librosa.feature.spectral_rolloff(y=self.y, sr=self.sr, roll_percent=0.85)[0]
+            high_freq_energy = np.mean(rolloff) / (self.sr / 2)
+            
+            # Комбинируем метрики с весами
+            energy = (
+                rms_energy * 0.35 +
+                brightness * 0.25 +
+                percussiveness * 0.20 +
+                high_freq_energy * 0.20
+            )
+            
+            # Нормализуем к 0-1
+            energy_normalized = min(1.0, max(0.0, energy / 0.12))
+            
+            # Определяем настроение
+            if energy_normalized < 0.3:
+                mood = "Calm/Chill"
+            elif energy_normalized < 0.5:
+                mood = "Groovy/Smooth"
+            elif energy_normalized < 0.65:
+                mood = "Energetic/Danceable"
+            elif energy_normalized < 0.82:
+                mood = "Driving/Powerful"
+            else:
+                mood = "Peak/Intense"
+            
+            return round(energy_normalized, 3), mood
+            
+        except Exception as e:
+            print(f"Ошибка анализа энергии для {self.filename}: {e}")
+            return 0.5, "Unknown"
+    
+    def analyze_structure(self) -> Dict[str, float]:
+        """Анализ структуры трека для cue-точек"""
+        try:
+            # Улучшенная сегментация
+            mfcc = librosa.feature.mfcc(y=self.y, sr=self.sr, n_mfcc=20)
+            
+            # Используем Laplacian segmentation для лучшего определения границ
+            boundaries_frames = librosa.segment.agglomerative(mfcc, k=6)
+            boundaries = librosa.frames_to_time(boundaries_frames, sr=self.sr)
+            
+            duration = librosa.get_duration(y=self.y, sr=self.sr)
+            
+            # Более точное определение секций
+            if len(boundaries) >= 4:
+                structure = {
+                    'intro': 0.0,
+                    'buildup': boundaries[1],
+                    'drop': boundaries[2],
+                    'outro': boundaries[-2] if len(boundaries) > 3 else duration * 0.85,
+                    'duration': duration
+                }
+            else:
+                # Fallback к процентам
+                structure = {
+                    'intro': 0.0,
+                    'buildup': duration * 0.25,
+                    'drop': duration * 0.5,
+                    'outro': duration * 0.85,
+                    'duration': duration
+                }
+            
+            return structure
+            
+        except Exception as e:
+            print(f"Ошибка анализа структуры для {self.filename}: {e}")
+            duration = librosa.get_duration(y=self.y, sr=self.sr) if self.y is not None else 0
+            return {
+                'intro': 0.0,
+                'buildup': duration * 0.25,
+                'drop': duration * 0.5,
+                'outro': duration * 0.85,
+                'duration': duration
+            }
+    
+    def get_metadata(self) -> Dict[str, str]:
+        """Извлечение существующих метаданных"""
+        try:
+            audio = File(self.file_path)
+            
+            metadata = {
+                'artist': '',
+                'title': '',
+                'album': '',
+                'genre': '',
+                'year': '',
+                'duration': 0
+            }
+            
+            if audio is not None and hasattr(audio, 'tags') and audio.tags:
+                tags = audio.tags
+                
+                if isinstance(tags, ID3):
+                    metadata['artist'] = str(tags.get('TPE1', ''))
+                    metadata['title'] = str(tags.get('TIT2', ''))
+                    metadata['album'] = str(tags.get('TALB', ''))
+                    metadata['genre'] = str(tags.get('TCON', ''))
+                    metadata['year'] = str(tags.get('TDRC', ''))
+                else:
+                    metadata['artist'] = tags.get('artist', [''])[0] if 'artist' in tags else ''
+                    metadata['title'] = tags.get('title', [''])[0] if 'title' in tags else ''
+                    metadata['album'] = tags.get('album', [''])[0] if 'album' in tags else ''
+                    metadata['genre'] = tags.get('genre', [''])[0] if 'genre' in tags else ''
+                
+                if hasattr(audio, 'info') and audio.info:
+                    metadata['duration'] = int(audio.info.length)
+            
+            return metadata
+            
+        except Exception as e:
+            print(f"Ошибка чтения метаданных для {self.filename}: {e}")
+            return {'artist': '', 'title': '', 'album': '', 'genre': '', 'year': '', 'duration': 0}
+    
+    def full_analysis(self) -> Optional[Dict]:
+        """Полный анализ трека"""
+        if not self.load_audio():
+            return None
+        
+        print(f"Анализирую: {self.filename}")
+        
+        metadata = self.get_metadata()
+        bpm = self.analyze_bpm()
+        key, camelot = self.analyze_key()
+        energy, mood = self.analyze_energy_mood()
+        structure = self.analyze_structure()
+        
+        # Звёздочки на основе энергии/настроения
+        if energy < 0.3:
+            stars = 1
+        elif energy < 0.5:
+            stars = 2
+        elif energy < 0.65:
+            stars = 3
+        elif energy < 0.82:
+            stars = 4
+        else:
+            stars = 5
+        
+        result = {
+            'file_path': self.file_path,
+            'filename': self.filename,
+            'artist': metadata['artist'],
+            'title': metadata['title'],
+            'album': metadata['album'],
+            'existing_genre': metadata['genre'],
+            'year': metadata['year'],
+            'duration': structure['duration'],
+            'bpm': bpm,
+            'key': key,
+            'camelot': camelot,
+            'energy': energy,
+            'mood': mood,
+            'energy_stars': stars,  # Звёздочки = настроение/энергия
+            'cue_intro': 0.0,
+            'cue_buildup': structure['buildup'],
+            'cue_drop': structure['drop'],
+            'cue_outro': structure['outro'],
+            'loop_start': structure['outro'],
+            'loop_end': structure['duration']
+        }
+        
+        return result
+
+
+def analyze_track(file_path: str) -> Optional[Dict]:
+    """Анализ одного трека"""
+    analyzer = MusicAnalyzer(file_path)
+    return analyzer.full_analysis()

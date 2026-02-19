@@ -1,0 +1,126 @@
+from telegram import Update
+from telegram.ext import CallbackContext
+import database as db
+import smart_reminder
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+async def remind(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if not context.args:
+        reminders = db.get_active_reminders(user_id)
+        if not reminders:
+            await update.message.reply_text("⏰ Нет активных напоминаний")
+            return
+        msg = "⏰ **Активные напоминания:**\n"
+        for rid, interval, next_tr in reminders:
+            msg += f"  ID {rid}: каждые {interval} мин (след. ~{next_tr[11:16]})\n"
+        msg += "\nОтменить: /remind_cancel <id>"
+        await update.message.reply_text(msg, parse_mode='Markdown')
+        return
+    try:
+        minutes = int(context.args[0])
+        if minutes <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Укажите положительное число минут")
+        return
+    rid = db.add_reminder(user_id, minutes)
+    context.job_queue.run_repeating(
+        reminder_callback,
+        interval=minutes*60,
+        first=minutes*60,
+        data=(user_id, rid),
+        name=f"remind_{rid}"
+    )
+    await update.message.reply_text(f"⏰ Напоминание #{rid} установлено каждые {minutes} мин")
+
+async def remind_cancel(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if not context.args:
+        await update.message.reply_text("Использование: /remind_cancel <id>")
+        return
+    try:
+        rid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Укажите числовой ID")
+        return
+    db.deactivate_reminder(rid, user_id)
+    jobs = context.job_queue.get_jobs_by_name(f"remind_{rid}")
+    for job in jobs:
+        job.schedule_removal()
+    await update.message.reply_text(f"✅ Напоминание #{rid} отменено")
+
+async def reminder_callback(context: CallbackContext):
+    job = context.job
+    user_id, rid = job.data
+    await context.bot.send_message(chat_id=user_id, text="🔔 Напоминание: пора проверить сахар!")
+
+async def smart_remind(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if not context.args or context.args[0] not in ['on', 'off']:
+        await update.message.reply_text("Использование: /smart_remind on|off")
+        return
+    if context.args[0] == 'on':
+        db.set_reminder_enabled(user_id, 1)
+        preferred = smart_reminder.update_preferred_hours_for_user(user_id)
+        if preferred:
+            await update.message.reply_text(f"✅ Умные напоминания включены. Часы: {preferred}")
+        else:
+            await update.message.reply_text("✅ Умные напоминания включены (недостаточно данных)")
+    else:
+        db.set_reminder_enabled(user_id, 0)
+        await update.message.reply_text("❌ Умные напоминания отключены")
+
+async def remind_status(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    enabled = db.get_reminder_enabled(user_id)
+    pref_json = db.get_preferred_hours(user_id)
+    if pref_json:
+        import json
+        pref = json.loads(pref_json)
+        status = "включены" if enabled else "выключены"
+        await update.message.reply_text(f"📊 Статус умных напоминаний: {status}\nЧасы: {pref}")
+    else:
+        await update.message.reply_text("📊 Умные напоминания не настроены")
+
+async def set_reminder_interval(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if not context.args:
+        current = db.get_reminder_interval(user_id)
+        await update.message.reply_text(f"⏰ Текущий интервал: {current} ч. Укажите новое число часов")
+        return
+    try:
+        hours = float(context.args[0])
+        if hours <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Укажите положительное число")
+        return
+    db.set_reminder_interval(user_id, hours)
+    await update.message.reply_text(f"✅ Интервал напоминаний установлен: {hours} ч")
+
+async def check_missed_reminders(context: CallbackContext):
+    import sqlite3
+    from datetime import datetime, timedelta
+    conn = sqlite3.connect(db.DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT user_id, max_hours FROM reminder_intervals")
+    users = c.fetchall()
+    conn.close()
+    for user_id, max_hours in users:
+        conn = sqlite3.connect(db.DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT timestamp FROM glucose WHERE user_id=? ORDER BY timestamp DESC LIMIT 1", (user_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            continue
+        last_time = datetime.fromisoformat(row[0])
+        now = datetime.now()
+        hours_passed = (now - last_time).total_seconds() / 3600
+        if hours_passed > max_hours:
+            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Вы не делали замер {hours_passed:.1f} ч. Пора проверить сахар!")
+            db.update_reminder_last_check(user_id)

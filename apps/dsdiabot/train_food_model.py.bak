@@ -1,0 +1,201 @@
+"""
+Модуль для обучения и использования собственной модели распознавания еды.
+"""
+import sqlite3
+import os
+import io
+import json
+import logging
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from PIL import Image
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+import joblib
+from sklearn.model_selection import train_test_split
+import requests
+
+logger = logging.getLogger(__name__)
+
+DB_NAME = 'diabetes.db'
+MODELS_DIR = 'food_models'
+os.makedirs(MODELS_DIR, exist_ok=True)
+IMAGES_DIR = 'training_images'
+os.makedirs(IMAGES_DIR, exist_ok=True)
+
+# ===== ЗАГРУЗКА И ПОДГОТОВКА ДАННЫХ =====
+def download_image(file_id, bot_token):
+    """Скачивает изображение по file_id из Telegram."""
+    url = f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        return None
+    file_path = response.json()['result']['file_path']
+    file_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+    img_response = requests.get(file_url)
+    if img_response.status_code != 200:
+        return None
+    return Image.open(io.BytesIO(img_response.content))
+
+def load_training_data(bot_token, min_samples=50):
+    """Загружает данные из training_data, скачивает изображения и подготавливает для обучения."""
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM training_data WHERE image_file_id != '' AND confirmed_xe IS NOT NULL", conn)
+    conn.close()
+    
+    if len(df) < min_samples:
+        logger.warning(f"Недостаточно данных: {len(df)} < {min_samples}")
+        return None, None
+    
+    images = []
+    labels = []
+    for idx, row in df.iterrows():
+        try:
+            img = download_image(row['image_file_id'], bot_token)
+            if img:
+                # Преобразуем в единый размер и формат
+                img = img.convert('RGB').resize((224, 224))
+                img_array = np.array(img) / 255.0
+                images.append(img_array)
+                labels.append(row['confirmed_xe'])
+                # Сохраняем локально для будущего использования
+                img.save(os.path.join(IMAGES_DIR, f"{row['id']}.jpg"))
+        except Exception as e:
+            logger.error(f"Ошибка загрузки изображения {row['id']}: {e}")
+            continue
+    
+    if len(images) < min_samples:
+        return None, None
+    
+    return np.array(images), np.array(labels)
+
+# ===== СОЗДАНИЕ МОДЕЛИ =====
+def create_model():
+    """Создаёт модель на основе MobileNetV2 для регрессии XE."""
+    base_model = MobileNetV2(
+        input_shape=(224, 224, 3),
+        include_top=False,
+        weights='imagenet',
+        pooling='avg'
+    )
+    base_model.trainable = False  # Замораживаем базовую модель
+    
+    model = keras.Sequential([
+        base_model,
+        layers.Dense(128, activation='relu'),
+        layers.Dropout(0.3),
+        layers.Dense(64, activation='relu'),
+        layers.Dropout(0.2),
+        layers.Dense(1)  # Выход: XE (регрессия)
+    ])
+    
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=0.001),
+        loss='mse',
+        metrics=['mae']
+    )
+    return model
+
+# ===== ОБУЧЕНИЕ =====
+def train_model(bot_token, epochs=20, batch_size=16):
+    """Основная функция обучения."""
+    logger.info("Загрузка данных для обучения...")
+    X, y = load_training_data(bot_token)
+    
+    if X is None:
+        return {"error": "Недостаточно данных для обучения (нужно минимум 50 образцов)"}
+    
+    logger.info(f"Загружено {len(X)} изображений")
+    
+    # Разделение на train/validation
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    
+    # Аугментация данных
+    datagen = ImageDataGenerator(
+        rotation_range=20,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        horizontal_flip=True,
+        zoom_range=0.2,
+        brightness_range=[0.8,1.2]
+    )
+    
+    model = create_model()
+    
+    # Ранняя остановка
+    callbacks = [
+        keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True),
+        keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=3)
+    ]
+    
+    logger.info("Начало обучения...")
+    history = model.fit(
+        datagen.flow(X_train, y_train, batch_size=batch_size),
+        validation_data=(X_val, y_val),
+        epochs=epochs,
+        callbacks=callbacks,
+        steps_per_epoch=len(X_train) // batch_size
+    )
+    
+    # Оценка
+    val_loss, val_mae = model.evaluate(X_val, y_val)
+    logger.info(f"Validation MAE: {val_mae:.3f} XE")
+    
+    # Сохраняем модель
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = os.path.join(MODELS_DIR, f"food_model_{timestamp}.h5")
+    model.save(model_path)
+    
+    # Сохраняем историю обучения
+    with open(os.path.join(MODELS_DIR, f"history_{timestamp}.json"), 'w') as f:
+        json.dump(history.history, f)
+    
+    # Сохраняем метаданные в БД
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''INSERT INTO model_metadata 
+                 (model_name, trained_at, accuracy, features)
+                 VALUES (?, ?, ?, ?)''',
+              (f"food_model_{timestamp}", datetime.now().isoformat(), 
+               float(val_mae), "food_recognition"))
+    conn.commit()
+    conn.close()
+    
+    return {
+        "success": True,
+        "model_path": model_path,
+        "val_mae": val_mae,
+        "samples": len(X)
+    }
+
+# ===== ПРЕДСКАЗАНИЕ =====
+def predict_xe(image_bytes, model_path=None):
+    """Предсказывает XE по фото, используя последнюю или указанную модель."""
+    if model_path is None:
+        # Берём последнюю модель
+        model_files = sorted([f for f in os.listdir(MODELS_DIR) if f.endswith('.h5')])
+        if not model_files:
+            return None, "Модель не найдена. Сначала выполните /train_model"
+        model_path = os.path.join(MODELS_DIR, model_files[-1])
+    
+    try:
+        model = keras.models.load_model(model_path)
+        
+        # Подготовка изображения
+        img = Image.open(io.BytesIO(image_bytes))
+        img = img.convert('RGB').resize((224, 224))
+        img_array = np.array(img) / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
+        
+        # Предсказание
+        pred = model.predict(img_array, verbose=0)[0][0]
+        return float(pred), None
+    except Exception as e:
+        return None, str(e)

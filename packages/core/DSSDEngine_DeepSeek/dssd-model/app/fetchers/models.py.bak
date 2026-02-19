@@ -1,0 +1,292 @@
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Float, ForeignKey, Text, Index
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from app.core.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    telegram_id = Column(Integer, unique=True, nullable=False, index=True)
+    username = Column(String, nullable=True)
+    first_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+    subscriptions = relationship("Subscription", back_populates="user")
+
+class SubscriptionPlan(Base):
+    __tablename__ = "subscription_plans"
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)  # VANCHIK, DVUSHKA, TRYOKHA, BRATSKAYA
+    description = Column(String)
+    price_rub = Column(Integer)
+    price_usd = Column(Integer, nullable=True)
+    features = Column(Text)
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    plan_id = Column(Integer, ForeignKey("subscription_plans.id"))
+    start_date = Column(DateTime, default=datetime.utcnow)
+    end_date = Column(DateTime)
+    auto_renew = Column(Boolean, default=False)
+    payment_method = Column(String, nullable=True)
+    
+    user = relationship("User", back_populates="subscriptions")
+    plan = relationship("SubscriptionPlan")
+
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+    
+    id = Column(Integer, primary_key=True)
+    code = Column(String, unique=True, nullable=False)
+    discount_percent = Column(Integer)
+    applies_to_plan = Column(String, nullable=True)
+    max_uses = Column(Integer, default=1)
+    used_count = Column(Integer, default=0)
+    expires_at = Column(DateTime, nullable=True)
+
+class PlayerFCIStats(Base):
+    __tablename__ = 'player_fci_stats'
+
+    id = Column(Integer, primary_key=True)
+    fpl_id = Column(Integer, nullable=False, index=True)
+    name = Column(String(100))
+    team = Column(String(50))
+    position = Column(String(20))
+    
+    xg = Column(Float)
+    xa = Column(Float)
+    npxg = Column(Float)
+    cbit = Column(Integer)
+    cbirt = Column(Integer)
+    recoveries = Column(Integer)
+    big_chances_created = Column(Integer)
+    big_chances_missed = Column(Integer)
+    touches_in_box = Column(Integer)
+    accurate_crosses = Column(Integer)
+    key_passes = Column(Integer)
+    shots = Column(Integer)
+    shots_on_target = Column(Integer)
+    goals = Column(Integer)
+    assists = Column(Integer)
+    
+    gameweek = Column(Integer, nullable=False)
+    season = Column(String(10))
+    fetch_date = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    __table_args__ = (
+        Index('ix_fci_player_gw_season', 'fpl_id', 'gameweek', 'season', unique=True),
+    )
+
+class FCIUpdateLog(Base):
+    __tablename__ = 'fci_update_log'
+    
+    id = Column(Integer, primary_key=True)
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    records_added = Column(Integer)
+    records_updated = Column(Integer)
+    source_file = Column(String(255))
+    status = Column(String(20))
+    error_message = Column(String(500), nullable=True)
+
+class ModelVersion(Base):
+    __tablename__ = 'model_versions'
+
+    id = Column(Integer, primary_key=True)
+    version = Column(String(20), unique=True, nullable=False)
+    description = Column(String(255))
+    weights_snapshot = Column(Text)
+    parameters_snapshot = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+class PredictionLog(Base):
+    __tablename__ = 'prediction_logs'
+
+    id = Column(Integer, primary_key=True)
+    model_version_id = Column(Integer, ForeignKey('model_versions.id'))
+    prediction_type = Column(String(50))
+    input_data = Column(Text, nullable=False)
+    output = Column(Text, nullable=False)
+    league_id = Column(Integer, nullable=True)
+    user_id = Column(Integer, nullable=True)
+    gameweek = Column(Integer, nullable=True)
+    match_id = Column(String(100), nullable=True)
+    test_group = Column(String(20), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    processed_at = Column(DateTime, nullable=True)
+
+class MatchResult(Base):
+    __tablename__ = 'match_results'
+
+    id = Column(Integer, primary_key=True)
+    match_id = Column(String(100), unique=True, nullable=False)
+    home_team = Column(String(100))
+    away_team = Column(String(100))
+    home_score = Column(Integer)
+    away_score = Column(Integer)
+    season = Column(String(10))
+    gameweek = Column(Integer)
+    tournament = Column(String(20), nullable=True)
+    status = Column(String(20))
+    commence_time = Column(DateTime)
+    full_stats = Column(Text, nullable=True)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('ix_match_results_tournament', 'tournament'),
+    )
+
+class MatchEvent(Base):
+    __tablename__ = 'match_events'
+
+    id = Column(Integer, primary_key=True)
+    match_id = Column(String(100), nullable=False, index=True)
+    event_type = Column(String(50))
+    player_id = Column(Integer, nullable=True)
+    team_id = Column(Integer, nullable=True)
+    minute = Column(Integer, nullable=True)
+    additional_data = Column(Text, nullable=True)
+    source = Column(String(20), default='post_match')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('ix_match_events_match_id_type_player', 'match_id', 'event_type', 'player_id', 'minute', unique=True),
+    )
+
+class ValueBet(Base):
+    __tablename__ = 'value_bets'
+    
+    id = Column(Integer, primary_key=True)
+    match_id = Column(String(100), nullable=False, index=True)
+    market = Column(String(20))
+    our_prob = Column(Float)
+    odds = Column(Float)
+    edge = Column(Float)
+    bookmaker = Column(String(50))
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    expires_at = Column(DateTime)
+    is_active = Column(Boolean, default=True)
+    
+    __table_args__ = (
+        Index('ix_value_bets_match_market', 'match_id', 'market', unique=True),
+    )
+
+# ===================== Understat сырые данные =====================
+
+class RawUnderstatLeague(Base):
+    """
+    Сырые данные по лиге с Understat (страница лиги за сезон).
+    Содержит JSON со всеми матчами и xG.
+    """
+    __tablename__ = 'raw_understat_league'
+
+    id = Column(Integer, primary_key=True)
+    league = Column(String(20), nullable=False, index=True)   # epl, bundesliga, laliga, seriea, ligue1, ucl, uel
+    season = Column(String(10), nullable=False)               # например '2025'
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    data_json = Column(Text, nullable=False)                  # полный JSON ответа
+    __table_args__ = (
+        Index('ix_raw_understat_league_season', 'league', 'season', unique=True),
+    )
+
+class RawUnderstatPlayer(Base):
+    """
+    Сырые данные по игроку (если потребуется позже).
+    """
+    __tablename__ = 'raw_understat_player'
+    id = Column(Integer, primary_key=True)
+    player_id = Column(Integer, nullable=False, index=True)
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    data_json = Column(Text, nullable=False)
+
+# ===================== Признаки и метаданные модели =====================
+
+class FeatureStore(Base):
+    """
+    Хранилище признаков для модели DSSD.
+    Каждая запись содержит вектор признаков для одной сущности (менеджер/игрок) за один игровой тур.
+    """
+    __tablename__ = 'features'
+
+    id = Column(Integer, primary_key=True)
+    entity_type = Column(String(20), nullable=False)  # 'manager', 'player'
+    entity_id = Column(Integer, nullable=False, index=True)
+    gameweek = Column(Integer, nullable=False)
+    season = Column(String(10), nullable=False)
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    features = Column(Text, nullable=False)  # JSON-строка с признаками (21+ переменных)
+    target = Column(Float, nullable=True)    # целевая переменная (например, очки в следующем туре)
+    __table_args__ = (
+        Index('ix_features_entity_gw', 'entity_type', 'entity_id', 'gameweek', 'season', unique=True),
+    )
+
+    id = Column(Integer, primary_key=True)
+    version = Column(String(20), unique=True, nullable=False)
+    description = Column(String(255))
+    metrics = Column(Text)  # JSON с метриками (MAE, R2 и т.д.)
+    file_path = Column(String(255))  # путь к файлу модели (например, models/dssd_v1.joblib)
+    feature_importance = Column(Text)  # JSON с важностью признаков
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=False)
+
+class ModelMetric(Base):
+    """
+    Метрики производительности модели во времени (для мониторинга дрейфа).
+    """
+    __tablename__ = 'model_metrics'
+
+    id = Column(Integer, primary_key=True)
+    model_version_id = Column(Integer, ForeignKey('model_versions.id'))
+    check_date = Column(DateTime, default=datetime.utcnow)
+    mae = Column(Float)
+    r2 = Column(Float)
+    sample_size = Column(Integer)
+    test_data_date = Column(DateTime)  # за какой период тестировалось
+
+# ===================== Сырые данные FPL от DSDeepParser =====================
+
+class RawFPLBootstrap(Base):
+    __tablename__ = 'raw_fpl_bootstrap'
+    id = Column(Integer, primary_key=True)
+    fetch_date = Column(DateTime, default=datetime.utcnow, index=True)
+    data_json = Column(Text, nullable=False)
+    gameweek = Column(Integer, nullable=True)
+    season = Column(String(10), nullable=True)
+
+class RawFPLManagerHistory(Base):
+    __tablename__ = 'raw_fpl_manager_history'
+    id = Column(Integer, primary_key=True)
+    entry_id = Column(Integer, nullable=False, index=True)
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    data_json = Column(Text, nullable=False)
+    gameweek = Column(Integer, nullable=True)
+
+class RawFPLManagerPicks(Base):
+    __tablename__ = 'raw_fpl_manager_picks'
+    id = Column(Integer, primary_key=True)
+    entry_id = Column(Integer, nullable=False, index=True)
+    gameweek = Column(Integer, nullable=False)
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    data_json = Column(Text, nullable=False)
+    __table_args__ = (Index('ix_raw_fpl_manager_picks_entry_gw', 'entry_id', 'gameweek', unique=True),)
+
+class RawFPLManagerTransfers(Base):
+    __tablename__ = 'raw_fpl_manager_transfers'
+    id = Column(Integer, primary_key=True)
+    entry_id = Column(Integer, nullable=False, index=True)
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    data_json = Column(Text, nullable=False)
+
+class RawFPLFixtures(Base):
+    __tablename__ = 'raw_fpl_fixtures'
+    id = Column(Integer, primary_key=True)
+    fetch_date = Column(DateTime, default=datetime.utcnow)
+    data_json = Column(Text, nullable=False)
+    gameweek = Column(Integer, nullable=True)

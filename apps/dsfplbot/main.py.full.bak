@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+import os
+import asyncio
+from aiohttp import web
+
+async def healthcheck(request):
+    return web.Response(text="OK")
+
+async def main():
+    port = int(os.getenv("PORT", 8080))
+    app = web.Application()
+    app.router.add_get("/", healthcheck)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Healthcheck server started on port {port}", flush=True)
+    # Бесконечное ожидание
+    await asyncio.Event().wait()
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,0 +1,4 @@
+venv/
+apps/*/venv/
+venv/
+apps/*/venv/

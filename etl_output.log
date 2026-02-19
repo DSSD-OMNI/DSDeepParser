@@ -1,0 +1,10 @@
+2026-02-16 22:30:18,651 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-02-16 22:30:18,671 INFO sqlalchemy.engine.Engine SELECT raw_fpl_manager_history.id, raw_fpl_manager_history.entry_id, raw_fpl_manager_history.fetch_date, raw_fpl_manager_history.data_json, raw_fpl_manager_history.gameweek 
+FROM raw_fpl_manager_history 
+WHERE raw_fpl_manager_history.entry_id = ?
+2026-02-16 22:30:18,671 INFO sqlalchemy.engine.Engine [generated in 0.00022s] (109319,)
+2026-02-16 22:30:18,677 INFO sqlalchemy.engine.Engine SELECT raw_fpl_manager_history.id, raw_fpl_manager_history.entry_id, raw_fpl_manager_history.fetch_date, raw_fpl_manager_history.data_json, raw_fpl_manager_history.gameweek 
+FROM raw_fpl_manager_history 
+WHERE raw_fpl_manager_history.entry_id = ?
+2026-02-16 22:30:18,677 INFO sqlalchemy.engine.Engine [cached since 0.005621s ago] (33751,)
+2026-02-16 22:30:18,678 INFO sqlalchemy.engine.Engine COMMIT

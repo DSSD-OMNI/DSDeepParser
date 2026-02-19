@@ -1,0 +1,247 @@
+"""
+Модуль для работы со Spotify API с кэшированием и улучшенным поиском
+"""
+
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+import os
+import logging
+from typing import Dict, Optional, List
+from difflib import SequenceMatcher
+from dotenv import load_dotenv
+
+from cache import SpotifyCache
+
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+
+class SpotifyAnalyzer:
+    """Класс для получения жанров из Spotify с кэшированием"""
+    
+    def __init__(self, cache_enabled: bool = True, config: dict = None):
+        client_id = os.getenv('SPOTIFY_CLIENT_ID') or (config and config.get('client_id'))
+        client_secret = os.getenv('SPOTIFY_CLIENT_SECRET') or (config and config.get('client_secret'))
+        
+        self.cache_enabled = cache_enabled
+        self.cache = SpotifyCache() if cache_enabled else None
+        
+        if not client_id or not client_secret:
+            logger.warning("⚠️ Spotify API не настроен (работа в базовом режиме)")
+            self.sp = None
+        else:
+            try:
+                auth_manager = SpotifyClientCredentials(
+                    client_id=client_id,
+                    client_secret=client_secret
+                )
+                self.sp = spotipy.Spotify(auth_manager=auth_manager)
+                logger.info("✓ Spotify API подключен")
+            except Exception as e:
+                logger.error(f"Ошибка Spotify API: {e}")
+                self.sp = None
+    
+    def _similarity(self, a: str, b: str) -> float:
+        """Коэффициент схожести строк"""
+        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+    
+    def search_track(self, artist: str, title: str, album: str = '') -> Optional[str]:
+        """Улучшенный поиск трека в Spotify с учётом альбома и нескольких исполнителей"""
+        if not self.sp:
+            return None
+        
+        # Проверяем кэш
+        if self.cache_enabled and self.cache:
+            cached = self.cache.get(artist, title, album)
+            if cached and cached.get('track_id'):
+                return cached['track_id']
+        
+        try:
+            # Пробуем сначала с альбомом (если есть)
+            queries = []
+            if album:
+                queries.append(f"{artist} {title} {album}")
+            queries.append(f"{artist} {title}")
+            
+            best_match = None
+            best_score = 0.0
+            
+            for query in queries:
+                results = self.sp.search(q=query, type='track', limit=5)
+                if not results['tracks']['items']:
+                    continue
+                
+                for track in results['tracks']['items']:
+                    track_name = track['name']
+                    track_artists = ' '.join([a['name'] for a in track['artists']])
+                    
+                    name_score = self._similarity(title, track_name)
+                    artist_score = self._similarity(artist, track_artists)
+                    album_score = 1.0
+                    if album and track['album']['name']:
+                        album_score = self._similarity(album, track['album']['name'])
+                    
+                    total_score = 0.5 * name_score + 0.3 * artist_score + 0.2 * album_score
+                    
+                    if total_score > best_score:
+                        best_score = total_score
+                        best_match = track['id']
+                        
+                        if best_score > 0.85:
+                            if self.cache_enabled and self.cache:
+                                self.cache.set(artist, title, album, {'track_id': best_match})
+                            return best_match
+            
+            if best_match:
+                if self.cache_enabled and self.cache:
+                    self.cache.set(artist, title, album, {'track_id': best_match})
+                return best_match
+            
+            return None
+            
+        except Exception as e:
+            logger.debug(f"Ошибка поиска трека: {e}")
+            return None
+    
+    def get_track_info(self, track_id: str, artist: str = '', title: str = '', album: str = '') -> Optional[Dict]:
+        """Получение информации о треке и жанрах (с кэшированием)"""
+        if not self.sp:
+            return None
+        
+        # Проверяем кэш
+        if self.cache_enabled and self.cache and artist and title:
+            cached = self.cache.get(artist, title, album)
+            if cached and 'genres' in cached:
+                return cached
+        
+        try:
+            track_info = self.sp.track(track_id)
+            
+            # Получаем жанры всех исполнителей
+            all_genres = set()
+            for artist_item in track_info['artists']:
+                artist_info = self.sp.artist(artist_item['id'])
+                all_genres.update(artist_info['genres'])
+            
+            features = self.sp.audio_features([track_id])[0]
+            
+            result = {
+                'genres': list(all_genres),
+                'main_genre': list(all_genres)[0] if all_genres else 'Unknown',
+                'spotify_energy': features['energy'],
+                'spotify_valence': features['valence'],
+                'spotify_danceability': features['danceability'],
+                'spotify_tempo': features['tempo'],
+                'spotify_popularity': track_info['popularity'],
+                'track_id': track_id
+            }
+            
+            if self.cache_enabled and self.cache and artist and title:
+                self.cache.set(artist, title, album, result)
+            
+            return result
+            
+        except Exception as e:
+            logger.debug(f"Ошибка получения информации о треке: {e}")
+            return None
+    
+    def determine_genre_category(self, genres: List[str]) -> str:
+        """
+        Определение основной категории жанра для плейлистов
+        Фокус на музыкальных жанрах, не на настроении
+        """
+        if not genres:
+            return 'Unknown'
+        
+        genres_lower = ' '.join([g.lower() for g in genres])
+        
+        # House и его поджанры
+        if any(kw in genres_lower for kw in ['deep house', 'deep tech']):
+            return 'Deep House'
+        elif any(kw in genres_lower for kw in ['progressive house', 'progressive trance']):
+            return 'Progressive House'
+        elif any(kw in genres_lower for kw in ['tech house', 'minimal tech']):
+            return 'Tech House'
+        elif any(kw in genres_lower for kw in ['bass house', 'g house', 'uk house']):
+            return 'Bass House'
+        elif 'house' in genres_lower:
+            return 'House'
+        
+        # Techno и его поджанры
+        if any(kw in genres_lower for kw in ['melodic techno', 'melodic house']):
+            return 'Melodic Techno'
+        elif any(kw in genres_lower for kw in ['hard techno', 'industrial techno']):
+            return 'Hard Techno'
+        elif any(kw in genres_lower for kw in ['minimal techno', 'minimal']):
+            return 'Minimal Techno'
+        elif 'techno' in genres_lower:
+            return 'Techno'
+        
+        # Trance
+        if any(kw in genres_lower for kw in ['progressive trance', 'uplifting trance']):
+            return 'Trance'
+        elif 'trance' in genres_lower:
+            return 'Trance'
+        
+        # Drum & Bass
+        if any(kw in genres_lower for kw in ['drum and bass', 'dnb', 'jungle', 'liquid dnb']):
+            return 'Drum & Bass'
+        
+        # Dubstep
+        if any(kw in genres_lower for kw in ['dubstep', 'riddim', 'brostep']):
+            return 'Dubstep'
+        
+        # Electro
+        if any(kw in genres_lower for kw in ['electro house', 'big room', 'festival']):
+            return 'Electro House'
+        elif 'electro' in genres_lower:
+            return 'Electro'
+        
+        # Ambient / Downtempo
+        if any(kw in genres_lower for kw in ['ambient', 'downtempo', 'chillout', 'lo-fi']):
+            return 'Ambient/Chill'
+        
+        # Breakbeat
+        if any(kw in genres_lower for kw in ['breakbeat', 'breaks', 'nu-funk']):
+            return 'Breakbeat'
+        
+        # Trap / Hip-Hop
+        if any(kw in genres_lower for kw in ['trap', 'hip hop', 'hip-hop']):
+            return 'Trap/Hip-Hop'
+        
+        # Использем первый жанр если не подошло ни одно правило
+        return genres[0].title() if genres else 'Unknown'
+    
+    def enrich_track_data(self, track_data: Dict) -> Dict:
+        """Обогащение данных трека жанрами из Spotify (с кэшированием)"""
+        if not self.sp:
+            track_data['genre'] = track_data.get('existing_genre', 'Unknown')
+            track_data['genre_list'] = [track_data['genre']] if track_data['genre'] else []
+            track_data['spotify_available'] = False
+            return track_data
+        
+        artist = track_data.get('artist', '')
+        title = track_data.get('title', '')
+        album = track_data.get('album', '')
+        
+        track_id = self.search_track(artist, title, album)
+        
+        if track_id:
+            info = self.get_track_info(track_id, artist, title, album)
+            
+            if info:
+                track_data['genre_list'] = info['genres']
+                track_data['genre'] = self.determine_genre_category(info['genres'])
+                track_data['main_genre'] = info['main_genre']
+                track_data['spotify_energy'] = info['spotify_energy']
+                track_data['spotify_valence'] = info['spotify_valence']
+                track_data['spotify_danceability'] = info['spotify_danceability']
+                track_data['spotify_popularity'] = info['spotify_popularity']
+                track_data['spotify_available'] = True
+                return track_data
+        
+        # Если не найдено в Spotify
+        track_data['genre'] = track_data.get('existing_genre', 'Unknown')
+        track_data['genre_list'] = [track_data['genre']] if track_data['genre'] != 'Unknown' else []
+        track_data['spotify_available'] = False
+        return track_data

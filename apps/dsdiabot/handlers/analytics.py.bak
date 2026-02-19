@@ -1,0 +1,9 @@
+from telegram import Update
+from telegram.ext import CallbackContext
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Заглушка для модуля analytics
+async def dummy(update: Update, context: CallbackContext):
+    await update.message.reply_text("Функция в разработке")

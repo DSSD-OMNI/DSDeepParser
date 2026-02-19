@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""
+ETL-процесс для преобразования сырых данных из Understat и FPL в признаки для модели DSSD.
+Версия с реальными данными.
+"""
+import asyncio
+import os
+import json
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional
+
+import numpy as np
+import aiohttp
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
+
+from app.fetchers.models import (
+    RawFPLBootstrap, RawFPLManagerHistory, RawFPLManagerPicks,
+    RawFPLManagerTransfers, RawFPLFixtures,
+    RawUnderstatLeague, FeatureStore
+)
+
+logger = logging.getLogger(__name__)
+
+FPL_BASE = "https://fantasy.premierleague.com/api"
+
+# ----------------------------------------------------------------------
+# Вспомогательные функции для извлечения данных из Understat
+# ----------------------------------------------------------------------
+
+def extract_team_xg_from_understat(understat_data: dict, team_name: str) -> List[float]:
+    xg_list = []
+    for match in understat_data.get('matches', []):
+        if match['h']['title'] == team_name:
+            xg_list.append(float(match['h']['xG']))
+        elif match['a']['title'] == team_name:
+            xg_list.append(float(match['a']['xG']))
+    return xg_list
+
+async def get_team_xg_trend(team_name: str, season: str, session: AsyncSession, last_n: int = 5) -> float:
+    stmt = select(RawUnderstatLeague).where(
+        RawUnderstatLeague.season == season
+    ).order_by(RawUnderstatLeague.fetch_date.desc())
+    result = await session.execute(stmt)
+    rows = result.scalars().all()
+    if not rows:
+        return 1.2
+    latest = rows[0]
+    data = json.loads(latest.data_json)
+    xg_list = extract_team_xg_from_understat(data, team_name)
+    if not xg_list:
+        return 1.2
+    recent = xg_list[-last_n:]
+    return float(np.mean(recent))
+
+# ----------------------------------------------------------------------
+# Вспомогательные функции для работы с FPL API
+# ----------------------------------------------------------------------
+
+async def fetch_json(session: aiohttp.ClientSession, url: str):
+    async with session.get(url) as resp:
+        if resp.status == 200:
+            return await resp.json()
+        return None
+
+async def get_current_gw() -> int:
+    """Получает текущий игровой тур из bootstrap-static."""
+    async with aiohttp.ClientSession() as session:
+        url = f"{FPL_BASE}/bootstrap-static/"
+        data = await fetch_json(session, url)
+        if data:
+            for event in data['events']:
+                if event['is_current']:
+                    return event['id']
+        return 1
+
+async def get_league_managers(league_id: int) -> List[int]:
+    """Получает список entry_id менеджеров из классической лиги."""
+    url = f"{FPL_BASE}/leagues-classic/{league_id}/standings/"
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_json(session, url)
+        if data:
+            standings = data.get('standings', {}).get('results', [])
+            return [entry['entry'] for entry in standings]
+    return []
+
+async def get_manager_team(entry_id: int, gameweek: int) -> Optional[str]:
+    """Определяет команду менеджера по первому игроку в составе (упрощённо)."""
+    url = f"{FPL_BASE}/entry/{entry_id}/event/{gameweek}/picks/"
+    async with aiohttp.ClientSession() as session:
+        data = await fetch_json(session, url)
+        if data and 'picks' in data and data['picks']:
+            # Нужно получить название команды по element_id (из bootstrap)
+            # Упростим: пока вернём None, потом можно доработать
+            pass
+    return None
+
+# ----------------------------------------------------------------------
+# Функции для построения признаков менеджера
+# ----------------------------------------------------------------------
+
+async def build_features_for_manager(entry_id: int, gameweek: int, season: str, session: AsyncSession) -> Dict:
+    features = {}
+    # 1. Базовые признаки из истории
+    stmt = select(RawFPLManagerHistory).where(RawFPLManagerHistory.entry_id == entry_id)
+    result = await session.execute(stmt)
+    hist = result.scalar_one_or_none()
+    if not hist:
+        return {}
+    data = json.loads(hist.data_json)
+    # Извлекаем total_points, form и т.д.
+    current = data.get('current', [])
+    gw_data = next((c for c in current if c['event'] == gameweek), None)
+    if not gw_data:
+        return {}
+    features['total_points'] = gw_data.get('total_points', 0)
+    # Форма за последние 5 GW
+    last5 = [c['points'] for c in current if c['event'] <= gameweek][-5:]
+    features['form_5gw'] = np.mean(last5) if last5 else 0
+    # ... остальные признаки (нужно добавить по аналогии)
+
+    # 2. Используем Understat для xG команды (пока заглушка)
+    team_name = "Liverpool"  # нужно будет заменить на реальную команду
+    features['team_xg_trend'] = await get_team_xg_trend(team_name, season, session)
+    return features
+
+async def etl_for_all_managers(session: AsyncSession, gameweek: int, season: str, league_id: int):
+    entry_ids = await get_league_managers(league_id)
+    logger.info(f"Processing {len(entry_ids)} managers for GW {gameweek}")
+    for eid in entry_ids:
+        feats = await build_features_for_manager(eid, gameweek, season, session)
+        if feats:
+            record = FeatureStore(
+                entity_type='manager',
+                entity_id=eid,
+                gameweek=gameweek,
+                season=season,
+                features=json.dumps(feats, ensure_ascii=False),
+                target=None
+            )
+            session.add(record)
+    await session.commit()
+    logger.info(f"ETL completed for GW {gameweek}")
+
+# ----------------------------------------------------------------------
+# Точка входа для вызова из Celery
+# ----------------------------------------------------------------------
+async def run_etl_for_current_gw():
+    from app.core.database import AsyncSessionLocal
+    from app.core.config import settings
+    league_id = int(os.getenv('LEAGUE_ID', '0'))
+    if league_id == 0:
+        logger.error("LEAGUE_ID not set")
+        return
+    async with AsyncSessionLocal() as db:
+        current_gw = await get_current_gw()
+        season = "2025-26"  # можно определить динамически
+        await etl_for_all_managers(db, current_gw, season, league_id)
+
+if __name__ == "__main__":
+    asyncio.run(run_etl_for_current_gw())

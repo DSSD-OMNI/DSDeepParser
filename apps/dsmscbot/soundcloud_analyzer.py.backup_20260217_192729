@@ -1,0 +1,170 @@
+"""
+Модуль для работы со SoundCloud API (OAuth2 Client Credentials)
+Используется как fallback для получения жанров.
+"""
+
+import requests
+import logging
+import time
+import base64
+from typing import Dict, Optional, List
+from cache import SoundCloudCache
+
+logger = logging.getLogger(__name__)
+
+class SoundCloudAnalyzer:
+    """Класс для получения жанров из SoundCloud с поддержкой OAuth2 токенов"""
+    
+    TOKEN_URL = "https://api.soundcloud.com/oauth/token"
+    BASE_URL = "https://api.soundcloud.com"
+    
+    def __init__(self, client_id: str, client_secret: str, cache_enabled: bool = True):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.cache_enabled = cache_enabled
+        self.cache = SoundCloudCache() if cache_enabled else None
+        self.access_token = None
+        self.token_expires_at = 0
+        self.session = requests.Session()
+    
+    def _get_access_token(self) -> Optional[str]:
+        """Получает access token через client credentials flow"""
+        if self.access_token and time.time() < self.token_expires_at:
+            return self.access_token
+        
+        try:
+            # SoundCloud ожидает basic auth с client_id:client_secret
+            auth = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode()).decode()
+            headers = {
+                'Authorization': f'Basic {auth}',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            data = {
+                'grant_type': 'client_credentials'
+            }
+            resp = requests.post(self.TOKEN_URL, headers=headers, data=data, timeout=10)
+            if resp.status_code == 200:
+                token_data = resp.json()
+                self.access_token = token_data['access_token']
+                self.token_expires_at = time.time() + token_data.get('expires_in', 3600) - 60  # запас 60 сек
+                logger.debug("SoundCloud token получен")
+                return self.access_token
+            else:
+                logger.error(f"Ошибка получения токена: {resp.status_code} {resp.text}")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка при запросе токена: {e}")
+            return None
+    
+    def _make_request(self, endpoint: str, params: dict = None) -> Optional[dict]:
+        """Выполняет авторизованный запрос к SoundCloud API"""
+        token = self._get_access_token()
+        if not token:
+            return None
+        
+        headers = {'Authorization': f'Bearer {token}'}
+        url = f"{self.BASE_URL}/{endpoint}"
+        
+        try:
+            resp = self.session.get(url, headers=headers, params=params, timeout=10)
+            if resp.status_code == 200:
+                return resp.json()
+            elif resp.status_code == 401:
+                # токен истёк, попробуем обновить и повторить один раз
+                logger.debug("Token expired, refreshing...")
+                self.access_token = None
+                return self._make_request(endpoint, params)
+            elif resp.status_code == 429:
+                logger.warning("SoundCloud rate limit exceeded, waiting 60 seconds...")
+                time.sleep(60)
+                return self._make_request(endpoint, params)
+            else:
+                logger.debug(f"SoundCloud API error {resp.status_code}: {resp.text}")
+                return None
+        except Exception as e:
+            logger.debug(f"SoundCloud request failed: {e}")
+            return None
+    
+    def search_track(self, artist: str, title: str) -> Optional[Dict]:
+        """Поиск трека по исполнителю и названию, возвращает первый результат"""
+        if not self.client_id or not self.client_secret:
+            logger.warning("SoundCloud client_id или client_secret не заданы")
+            return None
+        
+        if self.cache_enabled and self.cache:
+            cached = self.cache.get(artist, title)
+            if cached:
+                return cached
+        
+        query = f"{artist} {title}"
+        params = {'q': query, 'limit': 5}
+        data = self._make_request('tracks', params)
+        if data and isinstance(data, list) and len(data) > 0:
+            track = data[0]
+            result = {
+                'id': track['id'],
+                'title': track['title'],
+                'artist': track.get('user', {}).get('username', ''),
+                'genre': track.get('genre', ''),
+                'track_type': track.get('track_type', ''),
+                'permalink': track.get('permalink_url', '')
+            }
+            if self.cache_enabled and self.cache:
+                self.cache.set(artist, title, result)
+            return result
+        return None
+    
+    def determine_genre_category(self, genre_str: str) -> str:
+        """Приводит жанр к стандартной категории"""
+        if not genre_str:
+            return 'Unknown'
+        genre_lower = genre_str.lower().strip()
+        
+        if any(kw in genre_lower for kw in ['house', 'deep house', 'tech house']):
+            return 'House'
+        elif any(kw in genre_lower for kw in ['techno', 'minimal', 'industrial']):
+            return 'Techno'
+        elif 'trance' in genre_lower:
+            return 'Trance'
+        elif any(kw in genre_lower for kw in ['drum and bass', 'dnb', 'jungle']):
+            return 'Drum & Bass'
+        elif any(kw in genre_lower for kw in ['dubstep', 'riddim']):
+            return 'Dubstep'
+        elif 'electro' in genre_lower:
+            return 'Electro'
+        elif any(kw in genre_lower for kw in ['ambient', 'downtempo', 'chill']):
+            return 'Ambient/Chill'
+        elif any(kw in genre_lower for kw in ['hip hop', 'trap', 'rap']):
+            return 'Hip-Hop/Trap'
+        elif any(kw in genre_lower for kw in ['rock', 'indie', 'alternative']):
+            return 'Rock/Alternative'
+        elif any(kw in genre_lower for kw in ['pop', 'dance pop']):
+            return 'Pop'
+        elif 'reggae' in genre_lower or 'dub' in genre_lower:
+            return 'Reggae/Dub'
+        elif 'classical' in genre_lower:
+            return 'Classical'
+        elif 'jazz' in genre_lower:
+            return 'Jazz'
+        else:
+            return genre_str.title()
+    
+    def enrich_track_data(self, track_data: Dict) -> Dict:
+        """Обогащает данные трека жанром из SoundCloud"""
+        artist = track_data.get('artist', '')
+        title = track_data.get('title', '')
+        if not artist or not title:
+            return track_data
+        
+        sc_track = self.search_track(artist, title)
+        if sc_track and sc_track.get('genre'):
+            genre = self.determine_genre_category(sc_track['genre'])
+            track_data['genre'] = genre
+            track_data['genre_source'] = 'soundcloud'
+            track_data['genre_raw'] = sc_track['genre']
+            track_data['soundcloud_available'] = True
+        else:
+            track_data['genre_source'] = 'metadata'
+            track_data['soundcloud_available'] = False
+        
+        return track_data

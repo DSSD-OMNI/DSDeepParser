@@ -1,0 +1,80 @@
+from telegram import Update
+from telegram.ext import CallbackContext
+import voice
+import nlu
+import database as db
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+voice_enabled = {}
+
+async def voice_command(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if not context.args or context.args[0] not in ['on', 'off']:
+        await update.message.reply_text("Использование: /voice on|off")
+        return
+    voice_enabled[user_id] = (context.args[0] == 'on')
+    state = "включено" if voice_enabled[user_id] else "выключено"
+    await update.message.reply_text(f"✅ Голосовое управление {state}")
+
+async def handle_voice(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if not voice_enabled.get(user_id, False):
+        return
+    msg = await update.message.reply_text("🎤 Распознаю речь...")
+    try:
+        voice_file = update.message.voice
+        file = await context.bot.get_file(voice_file.file_id)
+        ogg_bytes = await file.download_as_bytearray()
+        text = await voice.transcribe_voice(bytes(ogg_bytes))
+        if not text:
+            await msg.edit_text("❌ Не удалось распознать речь")
+            return
+        logger.info(f"Распознано: {text}")
+        command = nlu.extract_command(text)
+
+        if command['type'] == 'add_sugar':
+            db.add_glucose(user_id, command['value'])
+            await msg.edit_text(f"✅ Записан сахар: {command['value']} ммоль")
+        elif command['type'] == 'add_meal':
+            db.add_meal(user_id, command['value'])
+            await msg.edit_text(f"✅ Записана еда: {command['value']} ХЕ")
+        elif command['type'] == 'add_insulin':
+            db.add_insulin(user_id, command['value'])
+            await msg.edit_text(f"✅ Записан инсулин: {command['value']} ед")
+        elif command['type'] == 'stats':
+            context.args = [str(command['days'])]
+            from handlers.analytics import stats_detailed
+            await stats_detailed(update, context)
+            await msg.delete()
+        elif command['type'] == 'help':
+            from handlers.basic import help_command
+            await help_command(update, context)
+            await msg.delete()
+        elif command['type'] == 'remind':
+            context.args = [str(command['minutes'])]
+            from handlers.reminders import remind
+            await remind(update, context)
+            await msg.delete()
+        elif command['type'] == 'bolus':
+            args_list = [str(command['current'])]
+            if command['target'] is not None:
+                args_list.append(str(command['target']))
+            if command['carbs'] is not None:
+                args_list.append(str(command['carbs']))
+            context.args = args_list
+            from handlers.bolus import bolus
+            await bolus(update, context)
+            await msg.delete()
+        elif command['type'] == 'setprofile':
+            context.args = [str(command['sensitivity']), str(command['ratio']), str(command['target'])]
+            from handlers.bolus import setprofile
+            await setprofile(update, context)
+            await msg.delete()
+        else:
+            await msg.edit_text(f"❓ Не понял команду: {command['text']}")
+    except Exception as e:
+        logger.error(f"Ошибка обработки голоса: {e}")
+        await msg.edit_text("❌ Ошибка обработки голоса")

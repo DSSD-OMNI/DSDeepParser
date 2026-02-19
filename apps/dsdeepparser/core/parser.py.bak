@@ -1,0 +1,66 @@
+from abc import ABC, abstractmethod
+from typing import Any, List, Dict
+import json
+import csv
+from io import StringIO
+from bs4 import BeautifulSoup
+
+
+class BaseParser(ABC):
+    @abstractmethod
+    def parse(self, raw: Any) -> List[Dict]:
+        pass
+
+
+class JsonParser(BaseParser):
+    def __init__(self, config: Dict):
+        self.extract_path = config.get("extract")
+
+    def parse(self, raw: Any) -> List[Dict]:
+        if isinstance(raw, str):
+            data = json.loads(raw)
+        else:
+            data = raw
+        if self.extract_path:
+            parts = self.extract_path.strip("$.").split(".")
+            current = data
+            for part in parts:
+                if part.endswith("[*]"):
+                    key = part[:-3]
+                    current = current.get(key, [])
+                    break
+                else:
+                    current = current.get(part, {})
+            if isinstance(current, list):
+                return current
+            return [current]
+        if isinstance(data, list):
+            return data
+        return [data]
+
+
+class HtmlParser(BaseParser):
+    def __init__(self, config: Dict):
+        self.selector = config.get("selector")
+        self.attribute = config.get("attribute")
+
+    def parse(self, raw: str) -> List[Dict]:
+        soup = BeautifulSoup(raw, "lxml")
+        elements = soup.select(self.selector)
+        result = []
+        for el in elements:
+            if self.attribute:
+                value = el.get(self.attribute)
+            else:
+                value = el.get_text(strip=True)
+            result.append({"value": value})
+        return result
+
+
+class CsvParser(BaseParser):
+    def __init__(self, config: Dict):
+        self.delimiter = config.get("delimiter", ",")
+
+    def parse(self, raw: str) -> List[Dict]:
+        reader = csv.DictReader(StringIO(raw), delimiter=self.delimiter)
+        return list(reader)

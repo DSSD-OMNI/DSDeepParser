@@ -1,0 +1,128 @@
+from telegram import Update
+from telegram.ext import CallbackContext
+import database as db
+import iob
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+async def setprofile(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if len(context.args) < 3:
+        await update.message.reply_text("❌ Использование: /setprofile <чувствительность> <угл.коэф> <цель>")
+        return
+    try:
+        sens = float(context.args[0])
+        ratio = float(context.args[1])
+        target = float(context.args[2])
+    except ValueError:
+        await update.message.reply_text("❌ Все параметры должны быть числами")
+        return
+    db.set_user_settings(user_id, sens, ratio, target)
+    await update.message.reply_text("✅ Профиль сохранён")
+
+async def bolus(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    settings = db.get_user_settings(user_id)
+    if not settings:
+        await update.message.reply_text("❌ Сначала установите профиль командой /setprofile")
+        return
+    sensitivity, insulin_to_carb, target = settings
+    if len(context.args) < 1:
+        await update.message.reply_text("❌ Использование: /bolus <текущий сахар> [цель] [ХЕ]")
+        return
+    try:
+        current = float(context.args[0])
+        if len(context.args) >= 3:
+            target_glucose = float(context.args[1])
+            carbs = float(context.args[2])
+        else:
+            target_glucose = target
+            carbs = 0
+    except ValueError:
+        await update.message.reply_text("❌ Все параметры должны быть числами")
+        return
+    iob_amount = iob.get_iob(user_id)
+    correction = (current - target_glucose) / sensitivity if current > target_glucose else 0
+    meal_dose = carbs * insulin_to_carb
+    total_before_iob = correction + meal_dose
+    total = max(total_before_iob - iob_amount, 0)
+    response = f"📊 **Расчёт болюса:**\n"
+    response += f"Активный инсулин (IOB): {iob_amount} ед\n"
+    response += f"Коррекция: {correction:.2f} ед\n"
+    if carbs > 0:
+        response += f"На еду ({carbs} ХЕ): {meal_dose:.2f} ед\n"
+    response += f"**ИТОГО: {total:.2f} ед**\n"
+    if correction < 0:
+        response += "⚠️ Сахар ниже цели, будьте осторожны."
+    await update.message.reply_text(response, parse_mode='Markdown')
+
+async def set_time_profile(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if len(context.args) < 5:
+        await update.message.reply_text("Использование: /set_time_profile <начало> <конец> <чувств> <угл.коэф> <цель>")
+        return
+    try:
+        start = int(context.args[0])
+        end = int(context.args[1])
+        sens = float(context.args[2])
+        ratio = float(context.args[3])
+        target = float(context.args[4])
+        if not (0 <= start <= 23 and 0 <= end <= 23):
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Неверные параметры. Часы от 0 до 23")
+        return
+    db.set_time_profile(user_id, start, end, sens, ratio, target)
+    await update.message.reply_text(f"✅ Профиль для {start}:00-{end}:00 сохранён")
+
+async def list_time_profiles(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    profiles = db.get_all_time_profiles(user_id)
+    if not profiles:
+        await update.message.reply_text("📋 Нет временных профилей")
+        return
+    msg = "⏰ **Временные профили:**\n"
+    for start, end, sens, ratio, target in profiles:
+        msg += f"• {start}:00-{end}:00: чувств {sens}, угл.коэф {ratio}, цель {target}\n"
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+async def bolus_enhanced(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    current_hour = datetime.now().hour
+    profile = db.get_time_profile(user_id, current_hour)
+    if profile:
+        sensitivity, insulin_to_carb, target = profile
+    else:
+        settings = db.get_user_settings(user_id)
+        if not settings:
+            await update.message.reply_text("❌ Сначала установите профиль командой /setprofile или создайте временные профили")
+            return
+        sensitivity, insulin_to_carb, target = settings
+    if len(context.args) < 1:
+        await update.message.reply_text("❌ Использование: /bolus_enhanced <текущий сахар> [цель] [ХЕ]")
+        return
+    try:
+        current = float(context.args[0])
+        if len(context.args) >= 3:
+            target_glucose = float(context.args[1])
+            carbs = float(context.args[2])
+        else:
+            target_glucose = target
+            carbs = 0
+    except ValueError:
+        await update.message.reply_text("❌ Все параметры должны быть числами")
+        return
+    iob_amount = iob.get_iob(user_id)
+    correction = (current - target_glucose) / sensitivity if current > target_glucose else 0
+    meal_dose = carbs * insulin_to_carb
+    total_before_iob = correction + meal_dose
+    total = max(total_before_iob - iob_amount, 0)
+    response = f"📊 **Расчёт болюса (с учётом времени):**\n"
+    response += f"Активный инсулин (IOB): {iob_amount} ед\n"
+    response += f"Коррекция: {correction:.2f} ед\n"
+    if carbs > 0:
+        response += f"На еду ({carbs} ХЕ): {meal_dose:.2f} ед\n"
+    response += f"**ИТОГО: {total:.2f} ед**\n"
+    await update.message.reply_text(response, parse_mode='Markdown')

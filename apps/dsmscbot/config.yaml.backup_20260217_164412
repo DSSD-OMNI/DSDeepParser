@@ -1,0 +1,28 @@
+library_path: "/Users/daniil/Desktop/Music/ALLDSSD"
+analysis:
+  loop_bars: 8
+  calibrate_energy: true
+  cue_colors:
+    intro: 40,226,20
+    buildup: 233,237,26
+    drop: 242,22,45
+    outro: 23,147,226
+spotify:
+  enabled: true
+  client_id: 21873334d0554d07ae7f43beec849af8
+  client_secret: 962745dab7f54dafbf164b43c2287b98
+  cache_enabled: true
+  cache_ttl_days: 30
+parallel:
+  enabled: true
+  max_workers: 0
+logging:
+  level: INFO
+  console: true
+  file: output/analysis.log
+soundcloud:
+  enabled: true
+  client_id: wpVQuLzwl8KjaVNadghzxSrKOHDHotQu
+  client_secret: bzQvgAb4B5URhabgOy3NAOiBr0mRBEUy
+  cache_enabled: true
+  cache_ttl_days: 30

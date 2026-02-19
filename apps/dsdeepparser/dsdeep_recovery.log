@@ -1,0 +1,57 @@
+==========================================================
+ DSDeepParser ENGINEERING RECOVERY
+==========================================================
+[1/8] Environment validation...
+Python:
+Python 3.11.9
+PYTHONPATH: /Users/daniil/Desktop/DSSD_OMNI
+
+[2/8] Clearing __pycache__...
+Cache cleared.
+
+[3/8] Checking fetcher.py...
+Fetcher OK (size: 7072 bytes)
+
+[4/8] Fixing imports...
+Imports normalized.
+
+[5/8] Testing imports...
+OK: apps.dsdeepparser.core.fetcher
+FAIL: apps.dsdeepparser.sources.fpl -> No module named 'jinja2'
+OK: apps.dsdeepparser.sources.understat
+FAIL: apps.dsdeepparser.sources.elo -> No module named 'app'
+
+[6/8] Running Understat test...
+Available update functions: ['update_xg_cache']
+
+[7/8] Checking database...
+users
+subscription_plans
+promo_codes
+player_fci_stats
+fci_update_log
+model_versions
+match_results
+match_events
+value_bets
+raw_understat_league
+raw_understat_player
+features
+subscriptions
+prediction_logs
+model_metrics
+raw_fpl_bootstrap
+raw_fpl_manager_history
+raw_fpl_manager_picks
+raw_fpl_manager_transfers
+raw_fpl_fixtures
+raw_team_elo
+raw_fci_stats
+
+[8/8] Runtime file resolution...
+Fetcher loaded from: /Users/daniil/Desktop/DSSD_OMNI/apps/dsdeepparser/core/fetcher.py
+
+==========================================================
+ RECOVERY COMPLETE
+ Log saved to: dsdeep_recovery.log
+==========================================================

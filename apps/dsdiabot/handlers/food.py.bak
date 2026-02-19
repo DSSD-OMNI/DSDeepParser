@@ -1,0 +1,140 @@
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackContext
+import database as db
+import train_food_model
+import food_scanner
+import os
+import logging
+import json
+
+logger = logging.getLogger(__name__)
+
+food_model_mode = {}
+
+async def scan_food(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    mode = food_model_mode.get(user_id, "gemini")
+    if mode == "local":
+        await scan_food_local(update, context)
+    else:
+        await scan_food_gemini(update, context)
+
+async def scan_food_gemini(update: Update, context: CallbackContext):
+    if not os.getenv('GEMINI_API_KEY'):
+        await update.message.reply_text("❌ GEMINI_API_KEY не настроен")
+        return
+    if not update.message.photo:
+        await update.message.reply_text("📸 Отправьте фото еды")
+        return
+    photo = update.message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    context.user_data['last_scan_image'] = photo.file_id
+    await update.message.reply_text("🔍 Анализирую фото через Gemini...")
+    try:
+        image_bytes = await file.download_as_bytearray()
+        result = food_scanner.scan_food_image(bytes(image_bytes))
+        if not result:
+            await update.message.reply_text("❌ Не удалось распознать еду")
+            return
+        context.user_data['last_scan'] = result
+        msg = f"🍽️ **{result.get('description', 'Блюдо')}**\n\n"
+        for food in result.get('foods', []):
+            msg += f"• {food['name']}: ~{food['weight_g']}г = {food['total_carbs']}г угл.\n"
+        msg += f"\n📊 **Всего углеводов:** {result['total_carbs']}г"
+        msg += f"\n🍞 **ХЕ:** {result['total_xe']}"
+        keyboard = [
+            [InlineKeyboardButton("✅ Верно, записать", callback_data="confirm_scan"),
+             InlineKeyboardButton("✏️ Исправить", callback_data="edit_scan")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Ошибка сканирования Gemini: {e}")
+        await update.message.reply_text("❌ Ошибка при обработке фото")
+
+async def scan_food_local(update: Update, context: CallbackContext):
+    if not update.message.photo:
+        await update.message.reply_text("📸 Отправьте фото еды")
+        return
+    photo = update.message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    await update.message.reply_text("🔍 Анализирую фото локальной моделью...")
+    try:
+        image_bytes = await file.download_as_bytearray()
+        pred_xe, error = train_food_model.predict_xe(bytes(image_bytes))
+        if error:
+            await update.message.reply_text(f"❌ Ошибка: {error}")
+            return
+        user_id = update.effective_user.id
+        settings = db.get_user_settings(user_id)
+        msg = f"🍽️ **Анализ блюда (локальная модель)**\n📊 **ХЕ:** {pred_xe:.1f}"
+        if settings:
+            sensitivity, insulin_to_carb, target = settings
+            dose = pred_xe * insulin_to_carb
+            msg += f"\n💉 **Инсулин:** {dose:.2f} ед"
+            keyboard = [[InlineKeyboardButton("✅ Записать", callback_data=f"log_meal_{pred_xe:.1f}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(msg, reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(msg)
+    except Exception as e:
+        logger.error(f"Ошибка локального сканирования: {e}")
+        await update.message.reply_text("❌ Ошибка при обработке фото")
+
+async def scan_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+    if data == "confirm_scan":
+        result = context.user_data.get('last_scan')
+        if not result:
+            await query.edit_message_text("❌ Данные не найдены")
+            return
+        db.add_meal(user_id, result['total_xe'])
+        if 'last_scan_image' in context.user_data:
+            db.save_training_data(user_id, context.user_data['last_scan_image'], json.dumps(result), result['total_xe'])
+        await query.edit_message_text(f"✅ Записано: {result['total_xe']} ХЕ")
+    elif data == "edit_scan":
+        await query.edit_message_text("Пожалуйста, введите правильное количество ХЕ (число)")
+        context.user_data['awaiting_manual_xe'] = True
+    elif data.startswith("log_meal_"):
+        xe = float(data.replace("log_meal_", ""))
+        db.add_meal(user_id, xe)
+        await query.edit_message_text(f"✅ Записано: {xe} ХЕ")
+
+async def train_food(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    admin_id = int(os.getenv('ADMIN_ID', 0))
+    if user_id != admin_id:
+        await update.message.reply_text("❌ Только администратор")
+        return
+    await update.message.reply_text("🧠 Начинаю обучение модели еды...")
+    import threading
+    def train_and_notify():
+        token = os.getenv("TELEGRAM_TOKEN")
+        result = train_food_model.train_model(token)
+        app = context.application
+        if "error" in result:
+            app.create_task(update.message.reply_text(f"❌ {result['error']}"))
+        else:
+            app.create_task(update.message.reply_text(f"✅ Модель обучена! MAE: {result['val_mae']:.3f} ХЕ"))
+    threading.Thread(target=train_and_notify).start()
+
+async def food_model_status(update: Update, context: CallbackContext):
+    path = train_food_model.get_latest_model_path()
+    if path:
+        await update.message.reply_text(f"✅ Локальная модель: {os.path.basename(path)}")
+    else:
+        await update.message.reply_text("❌ Локальная модель не обучена")
+
+async def food_model_switch(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if not context.args or context.args[0] not in ['gemini', 'local']:
+        await update.message.reply_text("Использование: /food_model_switch gemini|local")
+        return
+    if context.args[0] == 'local' and not train_food_model.get_latest_model_path():
+        await update.message.reply_text("❌ Локальная модель не обучена")
+        return
+    food_model_mode[user_id] = context.args[0]
+    await update.message.reply_text(f"✅ Режим: {context.args[0]}")

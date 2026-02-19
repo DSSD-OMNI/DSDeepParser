@@ -1,0 +1,155 @@
+global:
+  timezone: "UTC"
+  log_level: "INFO"
+  log_rotation: "midnight"
+  log_backup_count: 7
+
+network:
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15"
+  proxies: []
+  session_pool_size: 10
+  cache_dir: "./cache"
+  cache_ttl_default: 300
+
+rate_limiter:
+  base_delay: 0.5
+  min_delay: 0.2
+  max_delay: 10.0
+  backoff_factor: 2.0
+  success_window: 50
+  error_threshold: 0.1
+
+notifications:
+  telegram:
+    enabled: false
+    token: "YOUR_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+
+default_storage:
+  type: "sqlite"
+  path: "/app/data/fpl_data.db"
+
+metrics:
+  enabled: true
+  port: 8000
+
+sources:
+  - name: "my_test_api"
+    enabled: true
+    schedule: "*/30 * * * *"
+    fetcher:
+      type: "http"
+      method: "GET"
+      url: "https://jsonplaceholder.typicode.com/posts/1"
+    parser:
+      type: "json"
+    storage:
+      - type: "sqlite"
+        table: "test_data"
+        mode: "insert"
+
+sources:
+  - name: "fpl_bootstrap"
+    enabled: true
+    schedule: "0 */12 * * *"
+    fetcher:
+      type: "http"
+      method: "GET"
+      url: "https://fantasy.premierleague.com/api/bootstrap-static/"
+      headers:
+        Accept: "application/json"
+    parser:
+      type: "json"
+    storage:
+      - type: "sqlite"
+        table: "bootstrap"
+        mode: "overwrite"
+
+  - name: "fpl_leagues"
+    enabled: true
+    schedule: "*/30 * * * *"
+    fetcher:
+      type: "http"
+      method: "GET"
+      url: "https://fantasy.premierleague.com/api/leagues-classic/{league_id}/standings/"
+      headers:
+        Accept: "application/json"
+      params:
+        league_id: [314313417]
+      pagination:
+        type: "page"
+        param: "page_standings"
+        start: 1
+        max_pages: 5
+    parser:
+      type: "json"
+      extract: "$.standings.results[*]"
+    transformer:
+      - operation: "rename"
+        mapping:
+          entry: "manager_id"
+          total: "total_points"
+          event_total: "event_points"
+      - operation: "compute"
+        expression: "percentile = (rank - 1) / (total_entries - 1) if total_entries > 1 else 0"
+    storage:
+      - type: "sqlite"
+        table: "league_standings"
+        unique_columns: ["league_id", "manager_id", "event"]
+
+  - name: "fpl_managers"
+    enabled: true
+    schedule: "0 */2 * * *"
+    fetcher:
+      type: "http"
+      method: "GET"
+      url: "https://fantasy.premierleague.com/api/entry/{manager_id}/"
+    parser:
+      type: "json"
+    transformer:
+      - operation: "flatten"
+    storage:
+      - type: "sqlite"
+        table: "managers"
+        unique_columns: ["manager_id"]
+
+  - name: "fpl_manager_history"
+    enabled: true
+    schedule: "0 */6 * * *"
+    fetcher:
+      type: "http"
+      method: "GET"
+      url: "https://fantasy.premierleague.com/api/entry/{manager_id}/history/"
+    parser:
+      type: "json"
+      extract: "$.current[*]"
+    storage:
+      - type: "sqlite"
+        table: "manager_history"
+        unique_columns: ["entry_id", "event"]
+  - name: "test_source"
+    enabled: true
+    schedule: "*/5 * * * *"
+    fetcher:
+      type: "http"
+      method: "GET"
+      url: "https://jsonplaceholder.typicode.com/posts/1"
+      headers:
+        Accept: "application/json"
+    parser:
+      type: "json"
+    storage:
+      - type: "sqlite"
+        table: "test_data"
+
+export:
+  csv_dir: "exports"
+  jsonl_file: "dataset.jsonl"
+  parquet_file: "dataset.parquet"
+  schedule_hour: 0
+
+ml:
+  enabled: false
+  recalculate_interval_hours: 6

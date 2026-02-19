@@ -1,0 +1,498 @@
+#!/usr/bin/env python3
+"""
+Главный скрипт анализа музыкальной библиотеки v2.1
+С параллельной обработкой, калибровкой энергии и логированием
+"""
+
+import os
+import sys
+import json
+import logging
+import yaml
+from pathlib import Path
+from tqdm import tqdm
+from typing import List, Dict
+from datetime import datetime
+from dotenv import load_dotenv
+import concurrent.futures
+import numpy as np
+
+from music_analyzer import analyze_track
+from spotify_analyzer import SpotifyAnalyzer
+from rekordbox_xml import create_rekordbox_xml
+from playlist_exporter import export_playlists_by_genre
+
+load_dotenv()
+
+# Настройка логирования
+def setup_logging(config):
+    log_config = config.get('logging', {})
+    level = getattr(logging, log_config.get('level', 'INFO'))
+    handlers = []
+    
+    if log_config.get('console', True):
+        handlers.append(logging.StreamHandler())
+    
+    log_file = log_config.get('file')
+    if log_file:
+        log_path = Path(__file__).parent.parent / log_file
+        log_path.parent.mkdir(exist_ok=True)
+        handlers.append(logging.FileHandler(log_path, encoding='utf-8'))
+    
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=handlers
+    )
+    
+    # Отключаем лишние логи от библиотек
+    logging.getLogger('spotipy').setLevel(logging.WARNING)
+    logging.getLogger('librosa').setLevel(logging.WARNING)
+
+
+class MusicLibraryProcessor:
+    """Процессор музыкальной библиотеки с параллельной обработкой"""
+    
+    SUPPORTED_FORMATS = ['.mp3', '.flac', '.wav', '.aiff', '.m4a', '.aac']
+    
+    def __init__(self, config: dict):
+        self.config = config
+        self.use_spotify = config.get('spotify', {}).get('enabled', True)
+        self.parallel = config.get('parallel', {}).get('enabled', True)
+        self.max_workers = config.get('parallel', {}).get('max_workers', 0)
+        self.calibrate_energy = config.get('analysis', {}).get('calibrate_energy', True)
+        
+        self.spotify = SpotifyAnalyzer(
+            cache_enabled=config.get('spotify', {}).get('cache_enabled', True),
+            config=config.get('spotify', {})
+        ) if self.use_spotify else None
+        
+        self.results = []
+        self.logger = logging.getLogger(__name__)
+    
+    def find_audio_files(self, library_path: str) -> List[str]:
+        """Поиск всех аудиофайлов"""
+        self.logger.info(f"🔍 Сканирование: {library_path}")
+        audio_files = []
+        
+        for root, dirs, files in os.walk(library_path):
+            for file in files:
+                if any(file.lower().endswith(ext) for ext in self.SUPPORTED_FORMATS):
+                    audio_files.append(os.path.join(root, file))
+        
+        self.logger.info(f"✓ Найдено: {len(audio_files)} аудиофайлов")
+        return audio_files
+    
+    def select_files_interactive(self, audio_files: List[str]) -> List[str]:
+        """
+        Интерактивный выбор файлов для анализа
+        """
+        print("\n" + "="*70)
+        print("ВЫБОР ТРЕКОВ ДЛЯ АНАЛИЗА")
+        print("="*70)
+        
+        print(f"\nНайдено треков: {len(audio_files)}")
+        print("\nВарианты:")
+        print("  1. Анализировать ВСЕ треки")
+        print("  2. Указать количество треков (первые N)")
+        print("  3. Выбрать конкретную папку")
+        print("  4. Выбрать по расширению файла")
+        
+        choice = input("\nВыберите вариант [1-4]: ").strip()
+        
+        if choice == '1':
+            return audio_files
+        
+        elif choice == '2':
+            count = input("Количество треков: ").strip()
+            try:
+                count = int(count)
+                return audio_files[:count]
+            except:
+                print("⚠️  Неверное число, обрабатываем все")
+                return audio_files
+        
+        elif choice == '3':
+            # Показываем уникальные папки
+            folders = set()
+            for file in audio_files:
+                folders.add(os.path.dirname(file))
+            
+            folders_list = sorted(folders)
+            print(f"\nНайдено папок: {len(folders_list)}")
+            print("\nПервые 20 папок:")
+            for i, folder in enumerate(folders_list[:20], 1):
+                # Показываем только последнюю часть пути
+                short_path = os.path.basename(folder) or folder
+                print(f"  {i}. {short_path}")
+            
+            if len(folders_list) > 20:
+                print(f"  ... и ещё {len(folders_list) - 20} папок")
+            
+            folder_input = input("\nВведите часть пути папки: ").strip()
+            
+            # Фильтруем файлы по папке
+            selected = [f for f in audio_files if folder_input.lower() in f.lower()]
+            print(f"✓ Выбрано: {len(selected)} треков")
+            return selected
+        
+        elif choice == '4':
+            print("\nДоступные форматы:")
+            formats = {}
+            for file in audio_files:
+                ext = os.path.splitext(file)[1].lower()
+                formats[ext] = formats.get(ext, 0) + 1
+            
+            for ext, count in sorted(formats.items()):
+                print(f"  {ext}: {count} файлов")
+            
+            ext_choice = input("\nВыберите расширение (например: .mp3): ").strip().lower()
+            if not ext_choice.startswith('.'):
+                ext_choice = '.' + ext_choice
+            
+            selected = [f for f in audio_files if f.lower().endswith(ext_choice)]
+            print(f"✓ Выбрано: {len(selected)} треков")
+            return selected
+        
+        else:
+            print("⚠️  Неверный выбор, обрабатываем все")
+            return audio_files
+    
+    def process_files(self, files: List[str], save_progress: bool = True) -> List[Dict]:
+        """Обработка файлов (параллельно или последовательно)"""
+        self.logger.info(f"🎵 Начинаем анализ {len(files)} треков...")
+        
+        if self.parallel and len(files) > 1:
+            return self._process_files_parallel(files, save_progress)
+        else:
+            return self._process_files_sequential(files, save_progress)
+    
+    def _process_files_sequential(self, files: List[str], save_progress: bool) -> List[Dict]:
+        """Последовательная обработка"""
+        self.logger.info("Режим: последовательный")
+        for file_path in tqdm(files, desc="Анализ", unit="трек", ncols=100):
+            self._analyze_one(file_path, save_progress)
+        return self.results
+    
+    def _process_files_parallel(self, files: List[str], save_progress: bool) -> List[Dict]:
+        """Параллельная обработка"""
+        workers = self.max_workers if self.max_workers > 0 else None
+        self.logger.info(f"Режим: параллельный (воркеров: {workers or os.cpu_count()})")
+        
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(analyze_track, f): f for f in files}
+            
+            with tqdm(total=len(files), desc="Анализ", unit="трек", ncols=100) as pbar:
+                for future in concurrent.futures.as_completed(futures):
+                    file_path = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            # Обогащение Spotify (делаем в основном процессе, т.к. там сеть)
+                            if self.use_spotify and self.spotify:
+                                result = self.spotify.enrich_track_data(result)
+                            else:
+                                result['genre'] = result.get('existing_genre', 'Unknown')
+                                result['spotify_available'] = False
+                            
+                            self.results.append(result)
+                            
+                            pbar.set_postfix({
+                                'BPM': f"{result['bpm']:.0f}",
+                                'Genre': result.get('genre', 'Unknown')[:15],
+                                'Energy': f"{result['energy_stars']}⭐"
+                            })
+                            
+                            if save_progress and len(self.results) % 50 == 0:
+                                self._save_progress()
+                    except Exception as e:
+                        self.logger.error(f"❌ {os.path.basename(file_path)}: {e}")
+                    finally:
+                        pbar.update(1)
+        
+        self.logger.info(f"✓ Анализ завершён: {len(self.results)} треков")
+        if save_progress:
+            self._save_progress()
+        
+        return self.results
+    
+    def _analyze_one(self, file_path: str, save_progress: bool):
+        """Анализ одного трека (для последовательного режима)"""
+        try:
+            result = analyze_track(file_path)
+            if result:
+                if self.use_spotify and self.spotify:
+                    result = self.spotify.enrich_track_data(result)
+                else:
+                    result['genre'] = result.get('existing_genre', 'Unknown')
+                    result['spotify_available'] = False
+                
+                self.results.append(result)
+                
+                if save_progress and len(self.results) % 50 == 0:
+                    self._save_progress()
+        except Exception as e:
+            self.logger.error(f"❌ {os.path.basename(file_path)}: {e}")
+    
+    def _save_progress(self):
+        """Сохранение прогресса"""
+        output_dir = Path(__file__).parent.parent / 'output'
+        output_dir.mkdir(exist_ok=True)
+        progress_file = output_dir / 'analysis_progress.json'
+        with open(progress_file, 'w', encoding='utf-8') as f:
+            json.dump(self.results, f, indent=2, ensure_ascii=False)
+    
+    def calibrate_energy_stars(self):
+        """Калибровка звёздочек на основе процентилей энергии"""
+        if not self.results or not self.calibrate_energy:
+            return
+        
+        energies = [t['energy'] for t in self.results]
+        if len(energies) < 5:
+            return
+        
+        # Вычисляем процентили
+        p20 = np.percentile(energies, 20)
+        p40 = np.percentile(energies, 40)
+        p60 = np.percentile(energies, 60)
+        p80 = np.percentile(energies, 80)
+        
+        self.logger.info(f"Калибровка энергии: процентили 20%={p20:.3f}, 40%={p40:.3f}, 60%={p60:.3f}, 80%={p80:.3f}")
+        
+        for track in self.results:
+            e = track['energy']
+            if e < p20:
+                stars = 1
+            elif e < p40:
+                stars = 2
+            elif e < p60:
+                stars = 3
+            elif e < p80:
+                stars = 4
+            else:
+                stars = 5
+            track['energy_stars'] = stars
+    
+    def generate_statistics(self) -> Dict:
+        """Генерация статистики"""
+        if not self.results:
+            return {}
+        
+        # Жанры
+        genres = {}
+        for track in self.results:
+            genre = track.get('genre', 'Unknown')
+            genres[genre] = genres.get(genre, 0) + 1
+        
+        # BPM
+        bpms = [t['bpm'] for t in self.results if t['bpm'] > 0]
+        
+        # Энергия
+        energies = [t['energy'] for t in self.results]
+        
+        # Настроения
+        moods = {}
+        for track in self.results:
+            mood = track.get('mood', 'Unknown')
+            moods[mood] = moods.get(mood, 0) + 1
+        
+        # Тональности
+        keys = {}
+        for track in self.results:
+            key = track.get('key', 'Unknown')
+            keys[key] = keys.get(key, 0) + 1
+        
+        stats = {
+            'total_tracks': len(self.results),
+            'genres': genres,
+            'moods': moods,
+            'bpm_range': {
+                'min': min(bpms) if bpms else 0,
+                'max': max(bpms) if bpms else 0,
+                'avg': sum(bpms) / len(bpms) if bpms else 0
+            },
+            'energy_range': {
+                'min': min(energies) if energies else 0,
+                'max': max(energies) if energies else 0,
+                'avg': sum(energies) / len(energies) if energies else 0
+            },
+            'top_keys': dict(sorted(keys.items(), key=lambda x: x[1], reverse=True)[:10]),
+            'spotify_coverage': sum(1 for t in self.results if t.get('spotify_available', False))
+        }
+        
+        return stats
+    
+    def print_statistics(self):
+        """Красивый вывод статистики"""
+        stats = self.generate_statistics()
+        
+        print("\n" + "="*70)
+        print("📊 СТАТИСТИКА БИБЛИОТЕКИ")
+        print("="*70)
+        
+        print(f"\n🎵 Всего треков: {stats['total_tracks']}")
+        
+        print(f"\n📁 Жанры (топ-10):")
+        for genre, count in sorted(stats['genres'].items(), key=lambda x: x[1], reverse=True)[:10]:
+            percentage = (count / stats['total_tracks']) * 100
+            print(f"  • {genre}: {count} ({percentage:.1f}%)")
+        
+        print(f"\n💫 Настроения:")
+        for mood, count in sorted(stats['moods'].items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / stats['total_tracks']) * 100
+            print(f"  • {mood}: {count} ({percentage:.1f}%)")
+        
+        print(f"\n⚡ BPM:")
+        print(f"  • Минимум: {stats['bpm_range']['min']:.0f}")
+        print(f"  • Максимум: {stats['bpm_range']['max']:.0f}")
+        print(f"  • Средний: {stats['bpm_range']['avg']:.0f}")
+        
+        print(f"\n🎹 Топ тональностей:")
+        for key, count in list(stats['top_keys'].items())[:10]:
+            print(f"  • {key}: {count} треков")
+        
+        if stats.get('spotify_coverage'):
+            coverage_pct = (stats['spotify_coverage'] / stats['total_tracks']) * 100
+            print(f"\n🎧 Spotify: {stats['spotify_coverage']} ({coverage_pct:.1f}%)")
+        
+        print("\n" + "="*70)
+
+
+def main():
+    """Главная функция"""
+    # Загрузка конфигурации
+    config_path = Path(__file__).parent / 'config.yaml'
+    if not config_path.exists():
+        print("⚠️  Файл config.yaml не найден. Будет создан шаблон.")
+        # Создаём шаблон
+        default_config = {
+            'library_path': '',
+            'analysis': {
+                'loop_bars': 8,
+                'calibrate_energy': True,
+                'energy_thresholds': [0.3, 0.5, 0.65, 0.82],
+                'cue_colors': {
+                    'intro': "40,226,20",
+                    'buildup': "233,237,26",
+                    'drop': "242,22,45",
+                    'outro': "23,147,226"
+                }
+            },
+            'spotify': {
+                'enabled': True,
+                'client_id': '',
+                'client_secret': '',
+                'cache_enabled': True,
+                'cache_ttl_days': 30
+            },
+            'parallel': {
+                'enabled': True,
+                'max_workers': 0
+            },
+            'logging': {
+                'level': 'INFO',
+                'console': True,
+                'file': 'output/analysis.log'
+            }
+        }
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(default_config, f, allow_unicode=True, sort_keys=False)
+        print(f"Создан {config_path}. Отредактируйте его перед запуском.")
+        sys.exit(0)
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    
+    setup_logging(config)
+    logger = logging.getLogger(__name__)
+    
+    print("="*70)
+    print("🎧 DJ MUSIC LIBRARY ANALYZER v2.1")
+    print("="*70)
+    
+    # Путь к библиотеке
+    library_path = config.get('library_path') or os.getenv('MUSIC_LIBRARY_PATH')
+    
+    if not library_path or not os.path.exists(library_path):
+        logger.warning("⚠️ Путь к библиотеке не задан в конфиге")
+        library_path = input("Введите путь к музыкальной библиотеке: ").strip()
+        if not os.path.exists(library_path):
+            logger.error("❌ Путь не существует!")
+            sys.exit(1)
+    
+    processor = MusicLibraryProcessor(config)
+    
+    all_files = processor.find_audio_files(library_path)
+    if not all_files:
+        logger.error("❌ Не найдено аудиофайлов!")
+        sys.exit(1)
+    
+    selected_files = processor.select_files_interactive(all_files)
+    if not selected_files:
+        logger.error("❌ Не выбрано файлов!")
+        sys.exit(1)
+    
+    logger.info(f"✓ К анализу: {len(selected_files)} треков")
+    confirm = input("Продолжить? (y/n) [y]: ").lower() or 'y'
+    if confirm != 'y':
+        logger.info("Отменено")
+        sys.exit(0)
+    
+    results = processor.process_files(selected_files)
+    if not results:
+        logger.error("❌ Не удалось проанализировать треки!")
+        sys.exit(1)
+    
+    # Калибровка звёздочек
+    processor.calibrate_energy_stars()
+    
+    processor.print_statistics()
+    
+    # Экспорт
+    output_dir = Path(__file__).parent.parent / 'output'
+    output_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    # Rekordbox XML
+    logger.info("📝 Создание Rekordbox XML...")
+    xml_path = output_dir / f'rekordbox_import_{timestamp}.xml'
+    create_rekordbox_xml(results, str(xml_path))
+    
+    # M3U/PLS
+    logger.info("📝 Создание M3U/PLS плейлистов...")
+    playlist_dir = output_dir / f'playlists_{timestamp}'
+    playlist_files = export_playlists_by_genre(results, str(playlist_dir))
+    
+    # JSON отчёт
+    json_path = output_dir / f'analysis_report_{timestamp}.json'
+    report = {
+        'timestamp': timestamp,
+        'library_path': library_path,
+        'total_tracks': len(results),
+        'statistics': processor.generate_statistics(),
+        'tracks': results
+    }
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+    
+    logger.info(f"💾 JSON отчёт: {json_path}")
+    
+    print("\n" + "="*70)
+    print("✅ ГОТОВО!")
+    print("="*70)
+    print(f"\n📁 Файлы в: {output_dir}")
+    print(f"🎵 Rekordbox XML: {xml_path.name}")
+    print(f"📂 Плейлисты: {playlist_dir.name}/ ({len(playlist_files)} файлов)")
+    print(f"📊 JSON отчёт: {json_path.name}")
+    print("\n" + "="*70)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Прервано пользователем")
+        sys.exit(0)
+    except Exception as e:
+        logging.exception("❌ Необработанная ошибка")
+        sys.exit(1)

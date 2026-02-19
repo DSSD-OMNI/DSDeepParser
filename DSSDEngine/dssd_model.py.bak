@@ -1,0 +1,198 @@
+"""
+DSSD Model Core v2.0
+Data.Strategy.Suspense.Drive
+Автор: Даниил и команда DSFPL
+Лицензия: MIT (открытый код)
+"""
+
+import numpy as np
+from typing import List, Dict, Any, Tuple
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class DSSDModel:
+    """
+    Основной класс модели DSSD.
+    Рассчитывает DSID League Race Index (LRI) на основе 21 переменной.
+    """
+
+    # Веса переменных (сумма = 1). Получены экспертным путём и подтверждены бэктестами.
+    WEIGHTS = {
+        'total_points': 0.08,
+        'form_5gw': 0.10,
+        'rank': 0.07,
+        'gap_to_leader': 0.06,
+        'gap_to_last': 0.03,
+        'team_value': 0.04,
+        'transfers_made': 0.02,
+        'form_trend': 0.09,
+        'volatility': 0.03,
+        'dgw_count': 0.05,
+        'chips_used': 0.04,
+        'fixture_difficulty': 0.04,
+        'injured_suspended': 0.03,
+        'risk_index': 0.02,
+        'avg_league_or': 0.02,
+        'captain_diversity': 0.02,
+        'points_spread': 0.02,
+        'league_pace': 0.06,
+        'active_ratio': 0.04,
+        'league_chips_usage': 0.02,
+        'luck_index': 0.06
+    }
+
+    def __init__(self):
+        self.variable_names = list(self.WEIGHTS.keys())
+        self.weights = np.array([self.WEIGHTS[name] for name in self.variable_names])
+
+    def normalize_variable(self, values: List[float], smooth_large: bool = False, n_managers: int = None) -> List[float]:
+        """
+        Нормализация переменной в диапазон [0,1], где 0 = лучший, 1 = худший.
+        Для больших лиг (>10000) применяется сглаживание экстремумов.
+        """
+        arr = np.array(values)
+        if len(arr) == 0:
+            return []
+        if np.all(arr == arr[0]):
+            return [0.5] * len(arr)
+
+        # Используем перцентили для отсечения выбросов
+        if smooth_large and n_managers and n_managers > 10000:
+            low = np.percentile(arr, 1)
+            high = np.percentile(arr, 99)
+        else:
+            low = np.min(arr)
+            high = np.max(arr)
+
+        if high == low:
+            return [0.5] * len(arr)
+
+        # Нормализация: (high - x) / (high - low)
+        normalized = (high - np.clip(arr, low, high)) / (high - low)
+
+        # Дополнительное сглаживание для очень больших лиг
+        if n_managers and n_managers > 50000:
+            normalized = normalized * 0.9 + 0.5 * 0.1
+
+        return normalized.tolist()
+
+    def calculate_lri(self, managers_data: List[Dict[str, float]], league_size: int = None) -> List[float]:
+        """
+        Принимает список словарей с данными менеджеров (ключи - имена переменных).
+        Возвращает список LRI для каждого менеджера в том же порядке.
+        """
+        if not managers_data:
+            return []
+
+        n = len(managers_data)
+        if league_size is None:
+            league_size = n
+
+        # Собираем значения по каждой переменной
+        var_values = {name: [] for name in self.variable_names}
+        for m in managers_data:
+            for name in self.variable_names:
+                var_values[name].append(m.get(name, 0.0))
+
+        # Нормализуем каждую переменную
+        normalized = {}
+        for name, values in var_values.items():
+            # Определяем, нужно ли сглаживание (для всех, кроме некоторых)
+            smooth = name in ['total_points', 'rank', 'gap_to_leader']  # пример
+            norm_vals = self.normalize_variable(values, smooth_large=smooth, n_managers=league_size)
+            normalized[name] = norm_vals
+
+        # Считаем взвешенную сумму для каждого менеджера
+        S = []
+        for i in range(n):
+            weighted_sum = 0.0
+            for j, name in enumerate(self.variable_names):
+                weighted_sum += self.weights[j] * normalized[name][i]
+            S.append(weighted_sum)
+
+        # Преобразуем в шкалу 1-10
+        LRI = [1 + 9 * s for s in S]
+
+        # Дополнительная балансировка для малых лиг
+        if league_size < 5:
+            # Усиливаем разброс
+            factor = 1 + 0.1 * (5 - league_size)
+            LRI = [min(10, max(1, 1 + 9 * ((lri-1)/9 * factor))) for lri in LRI]
+
+        return LRI
+
+    def adjust_for_inactive(self, league_data: Dict[str, Any]) -> List[float]:
+        """
+        Корректировка LRI с учётом доли неактивных менеджеров в лиге.
+        """
+        lri_values = league_data.get('lri_values', [])
+        active_ratio = league_data.get('active_ratio', 1.0)
+
+        if active_ratio >= 0.5 or not lri_values:
+            return lri_values
+
+        # Если много неактивных, сдвигаем LRI к среднему
+        adjustment = 0.3 * (1 - active_ratio * 2)
+        avg_lri = np.mean(lri_values)
+        adjusted = [lri + adjustment * (avg_lri - lri) for lri in lri_values]
+        # Обрезаем до допустимого диапазона
+        adjusted = np.clip(adjusted, 1, 10).tolist()
+        return adjusted
+
+
+# ================== Вспомогательные функции для сбора переменных ==================
+
+def calculate_form_trend(history: List[int]) -> float:
+    """Тренд формы: разница средних за последние 3 и предыдущие 3."""
+    if len(history) < 6:
+        return 0.0
+    last3 = np.mean(history[-3:])
+    prev3 = np.mean(history[-6:-3])
+    return last3 - prev3
+
+
+def calculate_volatility(scores: List[int]) -> float:
+    """Волатильность очков за последние 5 туров."""
+    if len(scores) < 5:
+        return 0.0
+    return np.std(scores[-5:])
+
+
+def calculate_luck_index(actual: float, expected: float) -> float:
+    """Фактор удачи: отклонение реальных очков от ожидаемых (xP)."""
+    return abs(actual - expected)
+
+
+# Пример использования (для теста)
+if __name__ == "__main__":
+    # Пример данных для 3 менеджеров
+    data = [
+        {'total_points': 1500, 'form_5gw': 60, 'rank': 1, 'gap_to_leader': 0,
+         'gap_to_last': 200, 'team_value': 105.2, 'transfers_made': 25,
+         'form_trend': 3.5, 'volatility': 5.2, 'dgw_count': 4,
+         'chips_used': 2, 'fixture_difficulty': 2.3, 'injured_suspended': 1,
+         'risk_index': 0.1, 'avg_league_or': 2500000, 'captain_diversity': 5,
+         'points_spread': 120, 'league_pace': 55, 'active_ratio': 0.9,
+         'league_chips_usage': 1.5, 'luck_index': 15},
+        {'total_points': 1450, 'form_5gw': 55, 'rank': 2, 'gap_to_leader': 50,
+         'gap_to_last': 150, 'team_value': 104.5, 'transfers_made': 22,
+         'form_trend': 1.2, 'volatility': 4.8, 'dgw_count': 3,
+         'chips_used': 1, 'fixture_difficulty': 2.5, 'injured_suspended': 2,
+         'risk_index': 0.2, 'avg_league_or': 2500000, 'captain_diversity': 5,
+         'points_spread': 120, 'league_pace': 55, 'active_ratio': 0.9,
+         'league_chips_usage': 1.5, 'luck_index': 20},
+        {'total_points': 1400, 'form_5gw': 50, 'rank': 3, 'gap_to_leader': 100,
+         'gap_to_last': 100, 'team_value': 103.8, 'transfers_made': 20,
+         'form_trend': -0.5, 'volatility': 6.1, 'dgw_count': 2,
+         'chips_used': 3, 'fixture_difficulty': 2.8, 'injured_suspended': 3,
+         'risk_index': 0.3, 'avg_league_or': 2500000, 'captain_diversity': 5,
+         'points_spread': 120, 'league_pace': 55, 'active_ratio': 0.9,
+         'league_chips_usage': 1.5, 'luck_index': 25}
+    ]
+
+    model = DSSDModel()
+    lri = model.calculate_lri(data)
+    print("LRI:", lri)

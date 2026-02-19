@@ -1,0 +1,217 @@
+import sqlite3
+import datetime
+
+DB_NAME = 'diabetes.db'
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Таблица пользователей
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (user_id INTEGER PRIMARY KEY, created_at TEXT)''')
+    # Таблица уровня глюкозы
+    c.execute('''CREATE TABLE IF NOT EXISTS glucose
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER,
+                  value REAL,
+                  timestamp TEXT)''')
+    # Таблица приёмов пищи (ХЕ)
+    c.execute('''CREATE TABLE IF NOT EXISTS meals
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER,
+                  carbs REAL,
+                  timestamp TEXT)''')
+    # Таблица настроек пользователя (коэффициенты)
+    c.execute('''CREATE TABLE IF NOT EXISTS user_settings
+                 (user_id INTEGER PRIMARY KEY,
+                  insulin_sensitivity REAL,
+                  insulin_to_carb REAL,
+                  target_glucose REAL)''')
+    # Таблица напоминаний
+    c.execute('''CREATE TABLE IF NOT EXISTS reminders
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER,
+                  interval_minutes INTEGER,
+                  next_trigger TEXT,
+                  active INTEGER DEFAULT 1)''')
+    conn.commit()
+    conn.close()
+
+# ---- Пользователи ----
+def add_user(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.datetime.now().isoformat()
+    try:
+        c.execute("INSERT INTO users (user_id, created_at) VALUES (?, ?)", (user_id, now))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass
+    finally:
+        conn.close()
+
+# ---- Глюкоза ----
+def add_glucose(user_id, value):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.datetime.now().isoformat()
+    c.execute("INSERT INTO glucose (user_id, value, timestamp) VALUES (?, ?, ?)",
+              (user_id, value, now))
+    conn.commit()
+    conn.close()
+
+def get_last_glucose(user_id, limit=10):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT value, timestamp FROM glucose WHERE user_id=? ORDER BY timestamp DESC LIMIT ?",
+              (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_all_glucose(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT value, timestamp FROM glucose WHERE user_id=? ORDER BY timestamp ASC", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+# ---- Еда (ХЕ) ----
+def add_meal(user_id, carbs):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.datetime.now().isoformat()
+    c.execute("INSERT INTO meals (user_id, carbs, timestamp) VALUES (?, ?, ?)",
+              (user_id, carbs, now))
+    conn.commit()
+    conn.close()
+
+def get_last_meals(user_id, limit=10):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT carbs, timestamp FROM meals WHERE user_id=? ORDER BY timestamp DESC LIMIT ?",
+              (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_all_meals(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT carbs, timestamp FROM meals WHERE user_id=? ORDER BY timestamp ASC", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+# ---- Настройки пользователя ----
+def set_user_settings(user_id, sensitivity, insulin_to_carb, target):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''INSERT OR REPLACE INTO user_settings
+                 (user_id, insulin_sensitivity, insulin_to_carb, target_glucose)
+                 VALUES (?, ?, ?, ?)''',
+              (user_id, sensitivity, insulin_to_carb, target))
+    conn.commit()
+    conn.close()
+
+def get_user_settings(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT insulin_sensitivity, insulin_to_carb, target_glucose FROM user_settings WHERE user_id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+# ---- Напоминания ----
+def add_reminder(user_id, interval_minutes):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.datetime.now()
+    next_trigger = (now + datetime.timedelta(minutes=interval_minutes)).isoformat()
+    c.execute('''INSERT INTO reminders (user_id, interval_minutes, next_trigger, active)
+                 VALUES (?, ?, ?, 1)''', (user_id, interval_minutes, next_trigger))
+    reminder_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return reminder_id
+
+def get_active_reminders(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT id, interval_minutes, next_trigger FROM reminders WHERE user_id=? AND active=1", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def deactivate_reminder(reminder_id, user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE reminders SET active=0 WHERE id=? AND user_id=?", (reminder_id, user_id))
+    conn.commit()
+    conn.close()
+
+def get_due_reminders():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.datetime.now().isoformat()
+    c.execute("SELECT id, user_id, interval_minutes FROM reminders WHERE active=1 AND next_trigger <= ?", (now,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def update_reminder_next_trigger(reminder_id, interval_minutes):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.datetime.now()
+    next_trigger = (now + datetime.timedelta(minutes=interval_minutes)).isoformat()
+    c.execute("UPDATE reminders SET next_trigger=? WHERE id=?", (next_trigger, reminder_id))
+    conn.commit()
+    conn.close()
+
+# ===== НОВЫЕ ФУНКЦИИ ДЛЯ СТАТИСТИКИ =====
+def get_glucose_stats(user_id, days=7):
+    """Возвращает статистику по глюкозе за последние N дней."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Вычисляем дату days назад от текущего момента
+    from datetime import datetime, timedelta
+    start_date = (datetime.now() - timedelta(days=days)).isoformat()
+    c.execute('''SELECT value, timestamp FROM glucose 
+                 WHERE user_id=? AND timestamp >= ? 
+                 ORDER BY timestamp''', (user_id, start_date))
+    rows = c.fetchall()
+    conn.close()
+    if not rows:
+        return None
+    values = [r[0] for r in rows]
+    stats = {
+        'count': len(values),
+        'min': min(values),
+        'max': max(values),
+        'avg': sum(values)/len(values),
+        'values': values,
+        'timestamps': [r[1] for r in rows]
+    }
+    return stats
+
+def get_time_in_range(user_id, days=7, low=3.9, high=10.0):
+    """Возвращает процент времени в целевом диапазоне (по умолчанию 3.9-10.0)."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    from datetime import datetime, timedelta
+    start_date = (datetime.now() - timedelta(days=days)).isoformat()
+    c.execute('''SELECT value FROM glucose 
+                 WHERE user_id=? AND timestamp >= ?''', (user_id, start_date))
+    rows = c.fetchall()
+    conn.close()
+    if not rows:
+        return None
+    total = len(rows)
+    in_range = sum(1 for (val,) in rows if low <= val <= high)
+    return (in_range / total) * 100
+
+def estimate_hba1c(avg_glucose):
+    """Оценивает HbA1c по среднему уровню глюкозы (формула: (avg+2.59)/1.59)."""
+    # Формула из исследования DCCT: HbA1c = (средний глюкоза + 2.59) / 1.59
+    return (avg_glucose + 2.59) / 1.59

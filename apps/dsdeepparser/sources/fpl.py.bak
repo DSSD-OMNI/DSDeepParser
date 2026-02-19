@@ -1,0 +1,56 @@
+from core.base import DataSource
+from core.fetcher import HttpFetcher
+from core.parser import JsonParser
+from core.transformer import Transformer
+from storage.sqlite_storage import SQLiteStorage
+from storage.file_storage import FileStorage
+from core.storage import MultiStorage
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class FPLSource(DataSource):
+    def __init__(self, config: dict, global_config: dict, rate_limiter, session_pool):
+        super().__init__(config, global_config)
+        self.fetcher = HttpFetcher(
+            config["fetcher"],
+            rate_limiter,
+            session_pool,
+            global_config["network"]["proxies"],
+            global_config["network"]["user_agents"],
+            cache_dir=global_config["network"].get("cache_dir", "./cache"),
+            global_config=global_config
+        )
+        self.parser = JsonParser(config["parser"])
+        self.transformer = Transformer(config.get("transformer", []))
+
+        storage_configs = config.get("storage")
+        if not isinstance(storage_configs, list):
+            storage_configs = [storage_configs]
+
+        storages = []
+        for st_cfg in storage_configs:
+
+            if st_cfg is None: continue
+            if st_cfg["type"] == "sqlite":
+                storages.append(SQLiteStorage(global_config["default_storage"]["path"]))
+            elif st_cfg["type"] == "file":
+                storages.append(FileStorage(global_config["export"]["csv_dir"]))
+        if len(storages) == 1:
+            self.storage = storages[0]
+        else:
+            self.storage = MultiStorage(storages)
+
+    async def fetch(self):
+        params = self.config["fetcher"].get("params", {})
+        return await self.fetcher.fetch(params)
+
+    async def parse(self, raw_data):
+        return self.parser.parse(raw_data)
+
+    async def transform(self, records):
+        return self.transformer.transform(records)
+
+    async def store(self, records):
+        await self.storage.store(records, self.config)
